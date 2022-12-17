@@ -1,0 +1,872 @@
+---
+title: "FACTORS AFFECT SUICIDES PERCENTAGE CHR-2022"
+author: "Quynh Nguyen"
+params:
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    number_sections: TRUE
+    code_folding: show
+    code_download: TRUE
+---
+
+# Preliminaries
+
+```{r setup, echo=FALSE, cache=FALSE, message = FALSE}
+## Dr Love recommends you leave this code chunk exactly as it is
+library(knitr)
+library(rmdformats)
+## Global options
+options(max.print="100")
+opts_chunk$set(comment=NA)
+opts_knit$set(width=75)
+```
+
+## My R Packages
+
+This code snippet will list packages that going to be used throughout the proposal.
+
+```{r load_packages_here, message = FALSE}
+library(janitor)
+library(naniar)
+library(tidyverse)
+library(mosaic)
+library(readr)
+library(utils)
+library(ggplot2)
+library(patchwork)
+```
+
+## Data Ingest
+
+This following code snippet uses to load the data of 2022 County Health Rankings (CHR).
+
+```{r read_in_data_here, message = FALSE}
+data_url <- 
+  "https://www.countyhealthrankings.org/sites/default/files/media/document/analytic_data2022.csv"
+chr_2022_raw <- read_csv(data_url, skip = 1, guess_max = 4000,
+                         show_col_types = FALSE)
+```
+
+# Data Development
+
+## Selecting My Data
+
+For this proposal, I will select from the six "states": **Ohio (OH)**, **New York (NY)**, **Pennsylvania (PA)**, **Virginia (VA)**, **Massachusetts (MA)**, and **Maryland (MD)**. These states are considered as East Seaboard states of the U.S except for Ohio, which is Midwest. I've selected five variables **`freq_mental_distress` (v145_rawvalue)**, **`unemployment` (v023_rawvalue)**, **`food_insecurity` (v139_rawvalue)**, **`suicides` (v161_rawvalue)**, and **`alcohol_impaired_driving_deaths` (v134_rawvalue)** since I am interested in how unemployment can make an impact on mental health as well as other aspects in lives.
+
+From that, the chunk of code below would try to complete the following tasks:
+
+1.  **Task 1**: Filter the data to the actual counties that are ranked in the Rankings (this eliminates state and USA totals, mainly.) This is done by filtering to only keep rows that have `county_ranked` equal to `1`.
+2.  **Task 2**: Filter 6 states that I've selected (the `%in%` command lets us include any state in the list we then create with the c() function), including OH: `OH`, `NY`, `PA`, `VA`, `MA`, `MD`.
+3.  **Task 3**: Select the variables that I've chosen to use in this study, including the 3 mandatory variables (`fipscode`, `state`, and `county`): `v145`, `v023`, `v139`, `v161`, `v134`
+    -   Rename the 5 variables into meaningful names. These names are the actual meaning of the variables.
+    -   Except for the `suicides` variable, the other four variables are listed in proportions, so I will rescale it to percentage.
+4.  Repair the `fipscode` by converting it into a character variable instead numerical value and factoring the `state`
+
+```{r}
+chr_2022 <- chr_2022_raw |> 
+            filter(county_ranked == 1) |> 
+            filter(state %in% c("OH", "NY", "PA", "VA", "MA", "MD")) |>
+            select(fipscode, state, county, county_ranked, 
+                   v145_rawvalue, v023_rawvalue, v139_rawvalue, v161_rawvalue, v134_rawvalue) |>
+            rename(freq_mental_distress  = v145_rawvalue,
+                   unemployment = v023_rawvalue,
+                   food_insecurity = v139_rawvalue,
+                   suicides = v161_rawvalue,
+                   alcohol_impaired_driving_deaths = v134_rawvalue) |>
+            mutate(freq_mental_distress  = 100*freq_mental_distress ,
+                    unemployment = 100*unemployment,
+                    food_insecurity = 100*food_insecurity,
+                    alcohol_impaired_driving_deaths = 100*alcohol_impaired_driving_deaths) |>
+            mutate(fipscode = str_pad(fipscode, 5, pad="0"), 
+                   state = factor(state))
+```
+
+### Checking Initial Work
+
+After completing the tasks above, we want to check our initial work. This also checks if the total number of counties from our selected states can be around 200 - 400 counties or not.
+
+```{r}
+glimpse(chr_2022) 
+```
+
+Since the number of rows is 388, it should be accepted as it falls within the required range.
+
+### Checking missing values
+
+(**Part of Task 6**) We will check about the missing values for each variables
+
+```{r}
+chr_2022 |> 
+    miss_var_summary() |>
+    kable()
+```
+
+### Checking percentage available of missing-value-containing variables for each state
+
+(**Part of Task 7**) From the code snippet above, `suicides` and `alcohol_impaired_driving_deaths` have missing values. I want to summarize this by the state in order to compare the result.
+
+1.  For `suicides` variable:
+
+```{r message = FALSE}
+mosaic::favstats(suicides ~ state, data = chr_2022) |>
+    select(state, n, missing) |>
+    mutate(pct_available = 100*(n - missing)/n) |>
+    kable()
+```
+
+Since the `pct_variable` for each state is higher than 75% for `suicide`, we would like to go with the next check-up point.
+
+2.  For `alcohol_impaired_driving_deaths` variable:
+
+```{r message = FALSE}
+mosaic::favstats(alcohol_impaired_driving_deaths ~ state, data = chr_2022) |>
+    select(state, n, missing) |>
+    mutate(pct_available = 100*(n - missing)/n) |>
+    kable()
+```
+
+Since the `pct_variable` for each state is higher than 75% for `alcohol_impaired_driving_deaths`, we would like to go with the next check-up point.
+
+### Checking numbers of distinct values for each variable
+
+(**Part of Task 7**) I would like to check if each chosen variable contains at least 10 distinct non-missing values.
+
+```{r}
+chr_2022 |> 
+    summarize(across(freq_mental_distress:alcohol_impaired_driving_deaths, ~ n_distinct(.))) |>
+    kable()
+```
+
+Since all conditions are satisfied, I will keep working on my data selection.
+
+## Create Factors For Two of the Five Variables
+
+For **Task 4**, I will pick two out of five chosen variables in order to create factors for these variables. I chose `unemployment` and `freq_mental_distress` to create factors.
+
+### Creating Binary Categorical Variables
+
+-   For `freq_mental_distress`, it will be named as `mental_distress_level` and this variable will be used as binary categorical variables:
+    -   `low`: frequency is below 13.2.
+    -   `high`: frequency is equal to or higher than 13.2.
+
+The cut-off (13.2) was determined based on the frequency mental distress in U.S value (<https://www.americashealthrankings.org/explore/annual/measure/mental_distress>).
+
+```{r}
+chr_2022 <- chr_2022 |>
+            mutate(mental_distress_level = case_when(
+                  freq_mental_distress < 13.2 ~ "low",
+                  TRUE ~"high"), 
+                  mental_distress_level = factor(mental_distress_level)) 
+
+```
+
+After creating the `mental_distress_level`, I would like to check whether they can be factored or not. In addition, I also want to check if it has at least 10 rows for each level of factor or not.
+
+```{r message = FALSE}
+levels(as.factor(chr_2022$mental_distress_level)) 
+mosaic::favstats(freq_mental_distress ~ mental_distress_level, data = chr_2022) |> kable(digits = 3) 
+```
+
+### Creating a Three-Category Variable
+
+-   For `unemployment`, I would name it as `unemployment_level` and factor it into three different levels:
+    -   `low`: percentage is under 5%
+    -   `normal`: percentage is higher than 5% but lower than 7%.
+    -   `high`: percentage is equal to or higher than 7%
+
+Usually, it is said that the normal unemployment rate should be from 4% to 6%. Therefore, I would like to indicate that any unemployment percentage under 5%, which is the mean of the normal unemployment rate, should be considered a low employment rate. Then, the percentage that is higher than this range should be considered as a high unemployment rate. Therefore, I came up with the normal unemployment rate from 5% to 7%, and anything higher than this range would be a high rate.
+
+```{r}
+chr_2022 <- chr_2022 |>
+            mutate(unemployment_level = case_when(
+                  unemployment < 5 ~ "low",
+                  unemployment < 7 ~ "normal",
+                  TRUE ~ "high"),
+                  unemployment_level = factor(unemployment_level))
+```
+
+I will do the same thing as above to check if it is possible to factor in the `unemployment_level` column or not. If yes, I also want to know whether it contains at least 10 rows at each level.
+
+```{r message = FALSE}
+levels(as.factor(chr_2022$unemployment_level))
+mosaic::favstats(unemployment ~ unemployment_level, data = chr_2022) |> kable(digits = 3) 
+```
+
+### Checking factors of `state` variable
+
+(**Part of Task 7**) Finally, I would like to check if the `state` variable is already factored as well as if it contains at least 10 counties for each level, or state.
+
+```{r }
+levels(as.factor(chr_2022$state))
+chr_2022 |> tabyl(state) |> adorn_pct_formatting() |> kable()
+```
+
+## Structure and Summarize of My Tibble
+
+(**Task 5**) This section would print out the structure of my tibble. I'm checking to see that:
+
+-   The first rows tell me that this is a tibble with specification about its dimensions
+
+-   I will have a complete set of 388 rows
+
+-   I have included only 11 variables which include:
+
+    -   Three required variables (`fipscode`, `county`, and `state`). For the `fipscode` and `county`, it should be characterized as `<chr>`. For `state`, it should be considered as `Factor` variables with an appropriate number of levels, `6`, followed by numerical code.\
+    -   My five original chosen variables should be specified as `<num>`.
+    -   My other two categorical variables, `unemployment_rate` and `mental_distress_level` are characterized as `Factor`, followed by numerical codes.
+
+    ```{r }
+    str(chr_2022)
+    ```
+
+The following code snippet will save the tibble into .Rds file
+
+```{r}
+saveRDS(chr_2022, "chr_2022_Quynh_Nguyen.rds")
+```
+
+We can try to load it with this command
+
+```{r}
+chr_2022_load <- readRDS("chr_2022_Quynh_Nguyen.rds")
+chr_2022_load
+```
+
+Or we can save it as .csv file
+
+```{r message=FALSE}
+write.csv(chr_2022, file ="chr_2022_Quynh_Nguyen.csv", col.names = TRUE)
+```
+
+# Codebook
+
+(**Task 6**) This section will display the codebooks for each name of variables in my tibble and their definitions. This section will contain two parts: (1) for states and (2) for variables.
+
+## Codebook for states
+
+| State Name    | Abbreviation | Numbers of counties |
+|---------------|--------------|---------------------|
+| Massachusetts | MA           | 14                  |
+| Maryland      | MD           | 24                  |
+| New York      | NY           | 62                  |
+| Ohio          | OH           | 88                  |
+| Pennsylvania  | PA           | 67                  |
+| Virginia      | VA           | 115                 |
+| **Total**     | \-           | 388                 |
+
+## Codebook for variables
+
+| Variable                          | Original code | Description                                                                                                   | Number of missing |
+|-----------------|------------------|-----------------|-------------------|
+| `fipscode`                        | N/A           | FIPS code                                                                                                     | 0                 |
+| `state`                           | N/A           | Including *6* chosen states: MA, MD, NJ, NY, OH, PA                                                           | 0                 |
+| `county`                          | N/A           | County name: including 388 counties from 6 chosen states                                                      | 0                 |
+| `county_ranked`                   | N/A           | It is county ranked. All of them should equals 1                                                              | 0                 |
+| `freq_mental_distress`            | v145          | Frequent Mental Distress Rate                                                                                 |                   |
+| `unemployment`                    | v023          | Unemployment Rate                                                                                             | 0                 |
+| `food_insecurity`                 | v139          | Food Insecurity Rate                                                                                          | 0                 |
+| `suicides`                        | v161_rawvalue | Suicides raw value                                                                                            | 24                |
+| `alcohol_impaired_driving_deaths` | v134          | Alcohol-impaired driving deaths                                                                               |                   |
+| `unemployment_level`              | N/A           | 3 levels: *low* = unemployment \< 5%; *normal* = 5% \<= unemployment rate \< 7%; *high* = unemployment \>= 7% | 0                 |
+| `mental_distress_level`           | N/A           | 2 levels: *low* = freq_mental_distress \< 13.2%, and *high* for freq_mental_distress \>= 13.2%                | 0                 |
+
+More details about the five chosen variables are specified below:
+
+-   `freq_mental_distress` was originally variable `v145_rawvalue`, and it is listed in the *Quality of Life* subcategory of *Health Outcome* at County Health Rankings. It describes the percentage of adults reporting 14 or more days of poor mental health per month. This data was obtained from Behavioral Risk Factor Surveillance System from 2019. This might be my **outcome** variable.
+-   `unemployment` was originally variable `v023_rawvalue`, and it is listed in the *Unemployment* of *Social & Economic Factors* subcategory of *Health Factors* at County Health Rankings. It describes percentage of population ages 16 and older unemployed but seeking work. This data was obtained from Bureau of Labor Statistics from 2020.
+-   `food_insecurity` was originally variable `v139_rawvalue`, and it is listed in the *Diet and Exercise* of *Health Behaviors* subcategory of *Health Factors* at County Health Rankings. It describes percentage of population who lack adequate access to food.. This data was obtained from Map the Meal Gap from 2019.
+-   `suicides` was originally variable `v161_rawvalue`, and it is listed in the *Community Safety* of *Social & Economic Factors* subcategory of *Health Factors* at County Health Rankings. It describes number of deaths due to suicide per 100,000 population (age-adjusted). This data was obtained from National Center for Health Statistics - Mortality Files from 2016 - 2020.
+-   `alcohol_impaired_driving_deaths` was originally variable `v34_rawvalue`, and it is listed in the *Alcohol and Drug Use* of *Health Behaviors* subcategory of *Health Factors* at County Health Rankings. It describes percentage of driving deaths with alcohol involvement.. This data was obtained from Fatality Analysis Reporting System from 2016 - 2020. \# Print and Summarize Tibble
+
+(**Task 7**)
+
+## Print the Tibble
+
+```{r}
+chr_2022
+```
+
+## Report of Numerical Summaries
+
+Then, I would like to report the numerical summaries.
+
+```{r}
+Hmisc::describe(chr_2022) 
+```
+
+### For `freq_mental_distress` variable
+
+```{r message = FALSE}
+mosaic::favstats(~freq_mental_distress, data = chr_2022) |>
+    kable(digits = 3)
+```
+
+### For `unemployment` variable
+
+```{r message = FALSE}
+mosaic::favstats(~unemployment, data = chr_2022) |>
+    kable(digits = 3)
+```
+
+### For `food_insecurity` variable
+
+```{r message = FALSE}
+mosaic::favstats(~food_insecurity, data = chr_2022) |>
+    kable(digits = 3)
+```
+
+### For `suicides` variable
+
+```{r message = FALSE}
+mosaic::favstats(~suicides, data = chr_2022) |>
+    kable(digits = 3)
+```
+
+### For `alcohol_impaired_driving_deaths` variable
+
+```{r message = FALSE}
+mosaic::favstats(~alcohol_impaired_driving_deaths, data = chr_2022) |>
+    kable(digits = 3)
+
+```
+
+### For `mental_distress_level` variable
+
+```{r}
+chr_2022 |> tabyl(mental_distress_level) |> adorn_pct_formatting() |> kable()
+```
+
+### For `unemployment_level` variable
+
+```{r}
+chr_2022 |> tabyl(unemployment_level) |> adorn_pct_formatting() |> kable()
+```
+
+### For `state` variable
+
+I already included this in `2.2.3: Checking factors of state variable`
+
+# Report Writeup
+
+I did my project proposal by following it step-by-step as it was listed on the class website. However, I think that caused me a lot of trouble. First of all, I only saw other requirements for my data selection until I reached the end of the report. In the original work, instead of choosing Virginia, I chose Georgia. This original work resulted in more states and added more rows for me. However, when checking about the available percentage of non-missing values for the variable that contains missing values, it turned out this percentage was under 75% for Georgia. Therefore, I had to make another state selection and chose Virginia as an alternative selection. However, when I replaced it with Virginia, it gave me another variable that contains missing value instead only having one variable that has missing value as my original work. I did not recognize this in the first place until I went through my result again, which made me add another small code snippet. Therefore, I wish these checks could be placed somewhere at the beginning instead of in the latest task. Besides this part, I feel the instruction was well-organized and easy to follow.
+
+# Analyses 1
+
+## The Variables
+
+-   The outcome in this analysis should be the `suicides`. As indicated above, the suicides were in percentage, so its unit would be `%`. Since our outcome has some missing values, we would use complete case on it.
+-   Besides two categorical predictor variables, `unemployment` and `freq_mental_distress`, the other two predictors are `alcohol_impaired_driving_deaths` and `food_insecurity`. In this analysis, I would like to use `food_insecurity` as the predictor variables.
+-   From the table above, `food _insecurity` has no missing values, and it was calculated as percentage. Therefore, `food_insecurity` unit woule be `%`.
+-   The following is the tibble of the variables.
+
+```{r}
+data1 <- chr_2022 %>% select('food_insecurity', 'suicides', 'state', 'county')
+miss_var_summary(data1) |> kable()
+```
+
+```{r}
+#complete case for the suicides
+data1 <- data1 %>% filter(complete.cases(data1))
+data1 
+```
+
+The structure of the table, which have
+
+```{r}
+str(data1)
+```
+
+The number of counties that have complete cases for both variables are 364 counties.
+
+Value of predictor (`food_insecurity`) and outcome (`suicides`) for Cuyahoga County: `food_insecurity` is 13.9% and `suicides` is 13.41873.
+
+```{r}
+data1[data1$state =="OH" & data1$county=="Cuyahoga County",] |> kable()
+```
+
+## Research Question
+
+**What is the nature of the association between the `food insecurity` and `suicides`, in 364 counties across 6 different states?**
+
+## Visualizing the Data
+```{r}
+ggplot(data1, aes(x=food_insecurity, y =suicides)) + geom_point() + 
+  labs(x ="Food Insecurity (%)", 
+       y = "Suicides (%)",
+       title = "How closely associated are food insecurity and suicides?",
+       subtitle = "Food insecurity as predictors and suicides as outcomes")
+```
+
+Based on the figure above, it seems like they are somewhat having a positive association with each other as the `food_insecurity` percentage increases, the `suicides` percentage also increase. 
+```{r}
+ggplot(data1, aes(x=food_insecurity, y =suicides)) + geom_point(alpha = 0.6) +
+  geom_smooth(method="lm", col ="red", se = FALSE, formula = y ~ x) +
+  geom_smooth(method="loess", col ="blue", se=FALSE, formula = y ~x) +
+  labs(x ="Food Insecurity (%)", 
+       y = "Suicides (%)",
+       title = "Positive association between food insecurity and suicides",
+       subtitle = "OLS model in red, loess smooth in blue")
+```
+From the plot, it seems like they actually have a positive association between `food_insecurity` and `suicides` as points follow the straight line's path. Moreover, there are couples of outliners in the graph. In addition, the association is not a stronf correlation. 
+
+## Transformation Assessment
+In order to investigate as if I should do the transformation or not, I would like to investigate `suicides` variable, which is my outcome. 
+
+```{r}
+p1 <-  ggplot(data1, aes(sample = suicides)) +
+  geom_qq() + # plot the points
+  geom_qq_line(col = "blue") + # plot the Y = X line
+  theme(aspect.ratio = 1) + # make the plot square
+  labs(title = "Normal Q-Q plot: Simulated suicides")
+p2 <- ggplot(data1, aes(x=suicides)) +
+      geom_histogram(aes(y=stat(density)), bins = 20, fill ="royalblue", col ="white") +
+      stat_function(fun = dnorm, args = list(mean = mean(data1$suicides), sd = sd(data1$suicides)), col ="red", lwd = 1.5) +
+      labs(title="Density Function: Suicides")
+p3 <- ggplot(data1, aes(x = suicides, y = "")) +
+      geom_boxplot(fill = "royalblue",
+      outlier.color = "royalblue") +
+      labs(title = "Boxplot:Suicides", y = "")
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+mosaic::favstats(~ suicides, data = data1) %>% kable(digits = 1)
+```
+
+As the above graph, we can see that our `suicides` has right-skewed distribution. 
+
+```{r}
+p1 <-  ggplot(data1, aes(sample = food_insecurity)) +
+  geom_qq() + # plot the points
+  geom_qq_line(col = "blue") + # plot the Y = X line
+  theme(aspect.ratio = 1) + # make the plot square
+  labs(title = "Normal Q-Q plot: Simulated food insecurity")
+p2 <- ggplot(data1, aes(x=food_insecurity)) +
+      geom_histogram(aes(y=stat(density)), bins = 20, fill ="royalblue", col ="white") +
+      stat_function(fun = dnorm, args = list(mean = mean(data1$food_insecurity), sd = sd(data1$food_insecurity)), col ="red", lwd = 1.5) +
+      labs(title="Density Function: Food insecurity")
+p3 <- ggplot(data1, aes(x = food_insecurity, y = "")) +
+      geom_boxplot(fill = "royalblue",
+      outlier.color = "royalblue") +
+      labs(title = "Boxplot: Food insecurity", y = "")
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+mosaic::favstats(~ food_insecurity, data = data1) %>% kable(digits = 1)
+```
+Comparing to the `suicides  `, `food_insecurity` is normally distributed. 
+
+Because of this, I want to investigate the transformation on `suicides` variable by applying logarithm base 10 on this variable. 
+```{r}
+data2 <- mutate(data1, suicides = log(suicides))
+```
+
+```{r}
+p1 <-  ggplot(data2, aes(sample = suicides)) +
+  geom_qq() + # plot the points
+  geom_qq_line(col = "blue") + # plot the Y = X line
+  theme(aspect.ratio = 1) + # make the plot square
+  labs(title = "Normal Q-Q plot: Simulated suicides")
+p2 <- ggplot(data2, aes(x=suicides)) +
+      geom_histogram(aes(y=stat(density)), bins = 20, fill ="royalblue", col ="white") +
+      stat_function(fun = dnorm, args = list(mean = mean(data2$suicides), sd = sd(data2$suicides)), col ="red", lwd = 1.5) +
+      labs(title="Density Function: Suicides")
+p3 <- ggplot(data2, aes(x = suicides, y = "")) +
+      geom_boxplot(fill = "royalblue",
+      outlier.color = "royalblue") +
+      labs(title = "Boxplot: Suicides", y = "")
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+mosaic::favstats(~ suicides, data = data1) %>% kable(digits = 1)
+```
+After applying transformation on the `suicides` variable, it looks more normally distributed comparing being right-skewed distribution as before. Therefore, I decide to perform transformation by using logarithm on on my `suicides` outcome. 
+
+Due to this, the association between `food_insecurity` and `suicides` will be redone. 
+```{r}
+ggplot(data2, aes(x=food_insecurity, y =suicides)) + geom_point(alpha = 0.6) +
+  geom_smooth(method="lm", col ="red", se = FALSE, formula = y ~ x) +
+  geom_smooth(method="loess", col ="blue", se=FALSE, formula = y ~x) +
+  labs(x ="Food Insecurity (%)", 
+       y = "Log of Suicides Percentage",
+       title = "Positive association between food insecurity and log of suicides percentage",
+       subtitle = "OLS model in red, loess smooth in blue")
+```
+
+## The Fitted Model
+Now, we would like to create our fitted model:
+```{r}
+model1 <- lm(suicides ~ food_insecurity, data = data2)
+broom::tidy(model1, conf.int = TRUE, conf.level = 0.90) %>% select(term, estimate, conf.low, conf.high, p.value ) %>%
+kable(digits = 3)
+```
+Based on the summary of the model, the coefficients are: `food_insecurity` = `0.04` and `intercept` is `2.23`. Because the coefficient for `food_insecurity` is larger than 0, it means that we have a **positive association** between `food_insecurity` and `suicides`. The intercept coefficient means where our line will intersects with the y-axis.This coefficients gives equation for my model is Log(Suicides) = 0.04 * `food_insecurity` + 2.23. In addition, these coefficients are significant as the low confidences of the interval are above 0 for both `food_insecurity` and `intercept`.
+
+```{r}
+broom::glance(model1) %>% select(nobs, r.squared, adj.r.squared, sigma) %>% kable(digits = 3)
+```
+From the table above, it indicates that the R-squared is 0.137 and residual standard error is 0.309. 
+
+Finally, we obtain the Pearson correlatio is 0.37
+```{r}
+cor(y = data2$suicides, x = data2$food_insecurity)
+```
+## Residual Analysis 
+Here is using the `augment` function to get the fitted and residual values. 
+```{r}
+model1aug <- broom::augment(model1, data = data2)
+```
+
+Here is plot for Normality in the residuals 
+```{r, message = FALSE}
+p1 <- ggplot(model1aug, aes(sample = .resid)) +
+  geom_qq(col = "seagreen") + geom_qq_line(col = "black") + 
+  theme(aspect.ratio = 1) + 
+  labs(title = "Normal Q-Q: Model 1 Residuals")
+
+p2 <- ggplot(model1aug, aes(x = .resid)) +
+  geom_histogram(aes(y = stat(density)), 
+                 bins = 20, fill = "seagreen", col = "yellow") +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(model1aug$.resid), 
+                            sd = sd(model1aug$.resid)),
+                col = "black", lwd = 1.5) +
+  labs(title = "Hist + Normal Density: Model 1 Residuals")
+
+p3 <- ggplot(model1aug, aes(x = .resid, y = "")) +
+  geom_boxplot(fill = "seagreen", outlier.color = "seagreen") + 
+  labs(title = "Boxplot: Model 1 Residuals", y = "")
+
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+
+mosaic::favstats(~ .resid, data = model1aug) %>% kable(digits = 1)
+```
+From the histogram, we might agree that it is normally distributed. However, we can notice that each end of the histogram extends much further than the normal distribution, so it can be considered as heavy-tailed distribution. And this can be confirmed by our QQ-Plot. However, with that, the Normal model may still be reasonable for a batch of data. 
+
+And here is the plot for assess residuals vs fitted values for non-linearty
+
+```{r}
+ggplot(model1aug, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red",
+              formula = y ~ x, se = FALSE) + 
+  geom_smooth(method = "loess", col = "blue",
+              formula = y ~ x, se = FALSE) +
+  labs(title = "Model 1: Residuals vs. Fitted Values", 
+       x = "Fitted suicides values", y = "Residuals")
+```
+From the plot, we do not see any significant curve when plotting the residuals against the fitted values. However, this is not given the 'fuzzy football' pattern, which it seems like the variance across levels of the fitted values are not really similar to each other. 
+
+Since I use transform model, I will create another model here to get the models' prediction for the original outcome and compare to each actual outcome for Cuyahoga County in Ohio. The code is displayed below, with the predicted value as 17.05 while the actual value is 13.42
+```{r}
+org <- lm(suicides ~ food_insecurity, data = data1)
+orgaug <- broom::augment(org, data = data1)
+
+tibble(actual_value = data1[data1$state=="OH" & data1$county =="Cuyahoga County",]$suicides, predicted_value = orgaug[orgaug$state=="OH" & orgaug$county =="Cuyahoga County",]$.fitted) |> kable(digits = 3)
+
+```
+The two counties have the least successful at predicting outcome are Bronx County in New York with absolute residual values are 1.22 and Kings County in New York with absolute residual value as 1.11
+```{r}
+model1augorder <- mutate(model1aug, .resid = abs(.resid))
+model1augorder <- model1augorder[order(-model1augorder$.resid),]
+model1augorder[1:2,] |> kable(digits = 3)
+```
+## Conclusions and Limitations
+For this analysis, we are interested in the nature of association between the food insecurity and suicides in 364 counties. From the analysis above, instead of using the percentage of suicides, we use its log to make sure it has the normal distribution because the original values are right-skewed. Based on the analysis,  it appears that there is a positive association between the food insecurity and suicides. It appears that the association is moderate, as the Pearson's correlation is only 0.37. However, it appears to be a significant linear regression as both the estimation for the food insecurity and suicides have their confidence low level are above 0. With that, the association between the food insecurity and suicides can be expressed as: `Log(Suicides) = 0.04 * food_insecurity + 2.23`. 
+
+From the residual plot, we actually don't see any 'fuzzy football' pattern, which is understandable since the distribution of our residuals are not normality as it is a heavy-tailed distribution. Therefore, we can conclude that the variance variance across levels of the fitted values are not really similar to each other. In addition, another limitations in this study is that the states I chose cannot use to be a representative sample of the U.S. Since I selected it based on my favorite, instead of making random choices, and they all place in the Eastern of the U.S. If I want to make a representative sample of the U.S, I would better choose them randomly or I should pick one state from different coast. 
+
+# Analysis 2
+
+## The variables
+I choose `unemployment` and `freq_mental_distress` to be my two categorical predictors. In this report, I would like to use `freq_mental_distress` as my choice for categorical predictor. It was calculated in percentage (`%`) .The outcome would be the same, which is `suicides` (%)
+
+```{r}
+data3 <- chr_2022 %>% select('freq_mental_distress', 'mental_distress_level' ,'suicides', 'state', 'county')
+miss_var_summary(data3) |> kable()
+```
+
+```{r}
+#complete case for the suicides
+data3 <- data3 %>% filter(complete.cases(data3))
+data3
+```
+The structure of the table, which have
+
+```{r}
+str(data3)
+```
+The number of counties that have complete cases for both variables are 364 counties.
+
+Value of predictor (`freq_mental_distress`) and outcome (`suicides`) for Cuyahoga County: freq_mental_distress is 16.7% and suicides is 13.419%.
+```{r}
+data3[data3$state =="OH" & data3$county=="Cuyahoga County",] |> kable(digits = 3)
+```
+## Research Question
+
+**Does low or high frequency of mental distress show higher levels of suicides, in 364 counties in the states of?**
+
+## Visualizing Data 
+From the first analysis, we already know that the original distribution of `suicides` - our outcome - is right-skewed. Due to the normal assumption, I decide to use transformation by using logarithm again on the outcome. 
+
+```{r}
+data4 <- mutate(data3, suicides = log(suicides))
+str(data4)
+```
+```{r}
+ggplot(data = data4, aes(x = mental_distress_level , y = suicides, color = mental_distress_level)) +
+    geom_boxplot() +
+    labs(title = "Suicides by Levels of Mental Distress",
+         subtitle = "Log of Percentage of Suicides",
+         x = "Levels of Mental Distress",
+         y = "Log of Percentage of Suicides") +
+  labs(color="Mental Distress Level")
+```
+From the box plot above, we can see a quite big shift of log of percentage of suicides in `high` level of mental distress comparing to the `low` level of mental distress as the log of percentage of suicides in `high` level of mental distress is higher. 
+
+## The Fitted Model
+If we don't consider about the baseline state:
+```{r}
+model2 <- lm(suicides ~ freq_mental_distress, data = data4)
+broom::tidy(model2, conf.int = TRUE, conf.level = 0.90) %>% select(term, estimate, conf.low, conf.high, p.value ) %>%
+kable(digits = 3)
+```
+Based on the summary of the model, the coefficients are: `freq_mental_distress` = `0.081` and `intercept` is `2.23`. Because the coefficient for freq_mental_distress is larger than 0, it means that we have a **positive association** between `freq_mental_distress` and `suicides`. The intercept coefficient means where our line will intersects with the y-axis. This coefficients gives equation for my model is `Log(Suicides) = 0.081 * freq_mental_distress + 1.42`. In addition, these coefficients are significant as the low confidences of the interval are above 0 for both food_insecurity and intercept.
+
+We also want to see how the association varies by the freq_mental_distress
+```{r}
+data4 %>% group_by(mental_distress_level) %>% summarize(n = n(), pearson_r = cor(suicides, freq_mental_distress), r.squared = pearson_r^2) %>%
+  kable(digits = 3)
+```
+From the table, only `high` level of mental distress has higher Pearson's correlation comparing to `low`. Therefore, it is more fitted in this model comparing to the `low`. 
+
+For the baseline reference, I will choose "high" as default, and replace the previous model that we have:
+```{r}
+model2 <- lm(suicides ~ freq_mental_distress + mental_distress_level, data = data4)
+broom::tidy(model2, conf.int = TRUE, conf.level = 0.90) %>% select(term, estimate, conf.low, conf.high, p.value ) %>%
+kable(digits = 3)
+```
+Based on the summary of the model, the coefficients are: `freq_mental_distress` = `0.064` and `intercept` is `1.7`.
+The fitted model can be written as: (1) for low level of mental distress, it is `Log(Suicides) = 0.064 * freq_mental_distress + 1.52 ` and (2) for high level of mental distress, it is `Log(Suicides) = 0.064 * freq_mental_distress + 1.7 `
+Because the coefficient for freq_mental_distress is larger than 0, it means that we have a **positive association** between `freq_mental_distress` and `suicides`. The intercept coefficient means where our line will intersects with the y-axis. In addition, these coefficients are significant as the low confidences of the interval are above 0 for both food_insecurity and intercept. However, the baseline reference is not that significant important, as the interval of  coefficient for the baseline reference includes 0. 
+
+```{r}
+broom::glance(model2) %>% select(nobs, r.squared, adj.r.squared, sigma) %>% kable(digits = 3)
+```
+From the table above, it indicates that the `R-squared` is `0.273` and `residual standard error` is `0.284` with `364 observations`
+
+## Prediction Analysis 
+Here is using the augment function to get the fitted and residual values.
+```{r}
+model2aug <- broom::augment(model2, data = data4)
+```
+
+Here is the plot for Normality
+```{r}
+p1 <- ggplot(model2aug, aes(sample = .resid)) +
+  geom_qq(col = "seagreen") + geom_qq_line(col = "black") + 
+  theme(aspect.ratio = 1) + 
+  labs(title = "Normal Q-Q: Model 2 Residuals")
+
+p2 <- ggplot(model2aug, aes(x = .resid)) +
+  geom_histogram(aes(y = stat(density)), 
+                 bins = 20, fill = "seagreen", col = "yellow") +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(model2aug$.resid), 
+                            sd = sd(model2aug$.resid)),
+                col = "black", lwd = 1.5) +
+  labs(title = "Hist + Normal Density: Model 2 Residuals")
+
+p3 <- ggplot(model2aug, aes(x = .resid, y = "")) +
+  geom_boxplot(fill = "seagreen", outlier.color = "seagreen") + 
+  labs(title = "Boxplot: Model 2 Residuals", y = "")
+
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+mosaic::favstats(~ .resid, data = model2aug) %>% kable(digits = 1)
+```
+From the histogram, we might agree that it is normally distributed. However, we can notice that each end of the histogram extends much further than the normal distribution, so it can be considered as heavy-tailed distribution. And this can be confirmed by our QQ-Plot. However, with that, the Normal model may still be reasonable for a batch of data. 
+
+```{r}
+ggplot(model2aug, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red",
+              formula = y ~ x, se = FALSE) + 
+  geom_smooth(method = "loess", col = "blue",
+              formula = y ~ x, se = FALSE) +
+  labs(title = "Model 2: Residuals vs. Fitted Values", 
+       x = "Fitted suicides values", y = "Residuals")
+```
+From the plot, we can see the curve when plotting the residuals against the fitted values. In addition, this is not given the ‘fuzzy football’ pattern, which it seems like the variance across levels of the fitted values are not really similar to each other.
+
+Since I use transform model, I will create another model here to get the models’ prediction for the original outcome and compare to each actual outcome for Cuyahoga County in Ohio. The code is displayed below, with the predicted value as 16.70 while the actual value is 16.723
+
+```{r}
+org2 <- lm(suicides ~ freq_mental_distress + mental_distress_level, data = data3)
+org2aug <- broom::augment(org2, data = data3)
+
+tibble(actual_value = data3[data3$state=="OH" & data3$county =="Cuyahoga County",]$freq_mental_distress, predicted_value = org2aug[org2aug$state=="OH" & org2aug$county =="Cuyahoga County",]$.fitted) |> kable(digits = 3)
+```
+The two counties have the least successful at predicting outcome are Holmes County in Ohio with absolute residual values are 1.239 and Covington city in Virginia with absolute residual value as 0.992
+
+```{r}
+model2augorder <- mutate(model2aug, .resid = abs(.resid))
+model2augorder <- model2augorder[order(-model2augorder$.resid),]
+model2augorder[1:2,] |> kable(digits = 3)
+```
+## Conclusion and Limitations
+In this section, we want to know which levels of frequency of mental distress show higher levels of suicides in 364 counties in 6 states that we are investigated. From the box plot and the R-squared, it seems like the high level of mental distress has a higher positive association with the suicides.In addition, we also use 'high' as our baseline for the model. However, after our analysis, we would like to say that the even there are significant in positive association between the frequency of mental distress and suicides, the levels of the mental distress doesn't really matter. 
+The limitations are same as the above, which my states cannot be a presentative for the whole U.S in total as it was not picked randomly. Since the variance of residuals are not similarity to each otheras well as the normality of residuals is very heavy-tailed, I don't think we have a good model afterall. 
+
+# Analysis 3
+
+## The Variables 
+-   The outcome in this analysis should be the `suicides`. As indicated above, the suicides were in percentage, so its unit would be `%`. Since our outcome has some missing values, we would use complete case on it.
+-   Besides two categorical predictor variables, `unemployment` and `freq_mental_distress`, the other two predictors are `alcohol_impaired_driving_deaths` and `food_insecurity`. In this analysis, I would like to use `food_insecurity` as the predictor variables.
+-   From the table above, `food _insecurity` has no missing values, and it was calculated as percentage. Therefore, `food_insecurity` unit woule be `%`.
+-   The following is the tibble of the variables:
+```{r}
+data1 <- chr_2022 %>% select('food_insecurity', 'suicides', 'state', 'county')
+miss_var_summary(data1) |> kable()
+```
+
+```{r}
+data1 <- data1 %>% filter(complete.cases(data1))
+data1 
+```
+
+The structure of the table, which have
+```{r}
+str(data1)
+```
+
+The number of counties that have complete cases for both variables are 364 counties.
+
+Value of predictor (`food_insecurity`) and outcome (`suicides`) for Cuyahoga County, OH: `food_insecurity` is `13.9%` and `suicides` is `13.41873`.
+
+## Research Question
+**How well does food insecurity predict suicides after accounting for differences between states?**
+
+## Visualizing the Data 
+From the first analysis, we already know that the original distribution of suicides - our outcome - is right-skewed. Due to the normal assumption, I decide to use transformation by using logarithm again on the outcome.
+```{r}
+data2 <- mutate(data1, suicides = log(suicides))
+```
+
+The following graph represents all the association plot between `food_insecurity` and `suicides` of all states together. 
+```{r}
+ggplot(data2, aes(x=food_insecurity, y =suicides, color=state)) + geom_point() +
+  geom_smooth(method="lm", col ="red", se = FALSE, formula = y ~ x) +
+  geom_smooth(method="loess", col ="blue", se=FALSE, formula = y ~x) +
+  labs(x ="Food Insecurity (%)", 
+       y = "Log of Suicides Percentage",
+       title = "Positive association between food insecurity and log of suicides percentage",
+       subtitle = "OLS model in red, loess smooth in blue") +
+  labs(color="State")
+```
+Since this one is the same as the one in Analysis 1, we already know that there is a positive association between     `food insecurity` and `suicides`. However, it seems like different states have different representation. For example, we see most of pink dots, representing for Virginia, are clustering more on the left side. The red dots, representing for Massachusetts, are more likely to be on the left, below the line. And the green and blue dots, representing for New York and Ohio, respectively, are more likely to accumulate in the middle. Yellow dots, for Maryland, is spreading around. 
+
+This graph will represent the association between `food_insecurity` and `suicides` by each state. 
+```{r}
+ggplot(data2, aes(x=food_insecurity, y =suicides, color = state)) +
+  geom_point() +
+  geom_smooth(method="lm", col ="red", se = FALSE, formula = y ~ x) +
+  geom_smooth(method="loess", col ="blue", se=FALSE, formula = y ~x) +
+  facet_wrap(state ~ ., ncol = 3) +
+   labs(x ="Food Insecurity (%)", 
+       y = "Log of Suicides Percentage",
+       title = "Association between food insecurity and log of suicides percentage",
+       subtitle = "OLS model in red, loess smooth in blue", color = "State")
+```
+When we view each of those states separately, we can see that all the states, except for Massachusetts, have a positive association for our variables. For Massachusetts, it is a weak negative association for our variables. 
+
+## The Fitted Model
+```{r}
+data2 %>% group_by(state) %>% summarize(n = n(), pearson_r = cor(suicides, food_insecurity), r.squared = pearson_r^2) %>% kable(digits = 3)
+```
+
+In order to use `OH` as the baseline state, we have to re-level it due to the default settings may have another level of state to be the reference state.
+```{r}
+data2 <- mutate(data2, state = relevel(state, "OH"))
+model <- lm(suicides ~ food_insecurity + state, data = data2)
+broom::tidy(model, conf.int = TRUE, conf.level = 0.90) %>% select(term, estimate, conf.low, conf.high, p.value ) %>% kable(digits = 3)
+```
+Based on the summary of the model, the coefficients are: `food_insecurity` = `0.045` and `intercept` is `2.123`.
+The fitted model can be written as: 
+(1) For OH, it is `Log(Suicides) = 0.045 * food_insecurity + 2.123 ` 
+(2) For MA, it is `Log(Suicides) = 0.045 * food_insecurity + 1.96`
+(3) For MD, it is `Log(Suicides) = 0.045 * food_insecurity + 1.945`
+(4) For NY, it is `Log(Suicides) = 0.045 * food_insecurity + 1.923`
+(5) For PA, it is `Log(Suicides) = 0.045 * food_insecurity + 2.285`
+(5) For VA, it is `Log(Suicides) = 0.045 * food_insecurity + 2.346`
+Because the coefficient for food_insecurity is larger than 0, it means that we have a **positive association** between `food_insecurity` and `suicides`. The intercept coefficient means where our line will intersects with the y-axis. And finally, the coefficient for each state is the difference of the intercept compared to the baseline referece, i.e `OH`.In addition, these coefficients are significant as the low confidences of the interval are above 0 if it is positive number or as the high confidences of the interval are lower than 0 if it is negative number. In this case, for every coefficient, we have them to be significant. 
+
+```{r}
+broom::glance(model) %>% select(nobs, r.squared, adj.r.squared, sigma) %>% kable(digits = 3)
+
+```
+From the table above, it indicates that the R-squared is 0.387 and residual standard error is 0.262 with 364 observations
+## Residual Analysis 
+Here is using the `augment` function to get the fitted and residual values.
+
+
+```{r}
+modelaug <- broom::augment(model, data = data2)
+```
+
+Here is plot for Normality in the residuals
+```{r}
+p1 <- ggplot(modelaug, aes(sample = .resid)) +
+  geom_qq(col = "seagreen") + geom_qq_line(col = "black") + 
+  theme(aspect.ratio = 1) + 
+  labs(title = "Normal Q-Q: Model 1 Residuals")
+
+p2 <- ggplot(modelaug, aes(x = .resid)) +
+  geom_histogram(aes(y = stat(density)), 
+                 bins = 20, fill = "seagreen", col = "yellow") +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(modelaug$.resid), 
+                            sd = sd(modelaug$.resid)),
+                col = "black", lwd = 1.5) +
+  labs(title = "Hist + Normal Density: Model 1 Residuals")
+
+p3 <- ggplot(modelaug, aes(x = .resid, y = "")) +
+  geom_boxplot(fill = "seagreen", outlier.color = "seagreen") + 
+  labs(title = "Boxplot: Model 1 Residuals", y = "")
+
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+mosaic::favstats(~ .resid, data = modelaug) %>% kable(digits = 1)
+```
+From the histogram, we might agree that it is normally distributed. However, we can notice that each end of the histogram extends much further than the normal distribution, so it can be considered as heavy-tailed distribution. And this can be confirmed by our QQ-Plot. However, with that, the Normal model may still be reasonable for a batch of data.
+
+And here is the plot for assess residuals vs fitted values for non-linearty
+
+```{r}
+ggplot(modelaug, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red",
+              formula = y ~ x, se = FALSE) + 
+  geom_smooth(method = "loess", col = "blue",
+              formula = y ~ x, se = FALSE) +
+  labs(title = "Model: Residuals vs. Fitted Values", 
+       x = "Fitted suicides values", y = "Residuals")
+```
+From the plot, we do not see any significant curve when plotting the residuals against the fitted values. However, this is not given the ‘fuzzy football’ pattern, which it seems like the variance across levels of the fitted values are not really similar to each other.
+
+Since I use transform model, I will create another model here to get the models’ prediction for the original outcome and compare to each actual outcome for Cuyahoga County in Ohio. The code is displayed below, with the predicted value as 13.49 while the actual value is 17.054
+
+```{r}
+state1 <- mutate(data1, relevel(state, "OH"))
+orgf <- lm(suicides ~ food_insecurity + state, data = data1)
+orgfaug <- broom::augment(org, data = data1)
+
+tibble(actual_value = data1[data1$state=="OH" & data1$county =="Cuyahoga County",]$suicides, predicted_value = orgfaug[orgfaug$state=="OH" & orgfaug$county =="Cuyahoga County",]$.fitted) |> kable(digits = 3)
+```
+The two counties have the least successful at predicting outcome are Bronx County in New York with absolute residual values are 0.992 and Charlottesville city in Virginia with absolute residual value as 0.971. 
+````{r}
+modelaugorder <- mutate(modelaug, .resid = abs(.resid))
+modelaugorder <- modelaugorder[order(-modelaugorder$.resid),]
+modelaugorder[1:2,] |> kable(digits = 3)
+```
+## Conclusion and Analysis 
+For this analysis, I use the same predictor variable as in analysis 1, except that I will consider the association for each 6 states of my choice in order to investigate how well does food insecurity predict the suicides. From the scatter plot above, we could see that even though the overall combination of 6 states gives us a positive association between food insecurity and suicides, when we break it up into different states, Massachusetts returns a negative association while others still positive. With that interest, we furhter fitting our model with using Ohio as the baseline reference. From our model, even the coefficient for food insecurity as other intercepts are significant, but the coefficient is too low (`0.045`). This indicates that there are only a very weak positive interaction between the food insecurity and suicides, but surprisingly to be a little bit higher than the coefficient when combining all states together (`0.040`). This may be account to the fact that we use `Ohio` as the reference state since it has the highest Pearson's correlation score after all. Moreover, comparing to the original model in analysis 1, breaking up into states doesn't make a lot of difference as the coefficients of food insecurity as well as the intercept are quite similar. In addition to that, I barely agree that this would give us a right prediction for each state, since for Massachusetts, it still yields a positive association when it is supposed to be a negative one. 
+The limitations are same as above, as mine cannot be considered to be a representative sample for the U.S due to bias. In addition to that, for the normalty of residuals, it seems to be heavy-tailed and almost left-skewed. Therefore, it is very hard to assume that we have a normal distribution for the residuals. 
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
