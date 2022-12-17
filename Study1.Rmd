@@ -1,0 +1,639 @@
+---
+title: "Project B - Study 1"
+author: "Quynh Nguyen"
+params:
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    number_sections: TRUE
+    code_folding: show
+    code_download: TRUE
+---
+
+# Setup and Data Ingest
+## Initial Setup and Package Loads
+```{r setup, message = FALSE, warning = FALSE}
+library(knitr); library(rmdformats)
+
+library(janitor); library(naniar)
+library(broom); library(patchwork)
+
+library(readxl)
+library(Epi)
+library(Hmisc)
+library(tidyverse) 
+library(patchwork)
+library(car)
+library(equatiomatic)
+library(GGally)
+
+## Load Love-boost 
+source("/Users/quynhnguyen/Documents/Study Materials/boost.r")
+opts_chunk$set(comment=NA)
+opts_knit$set(width=75)
+
+theme_set(theme_bw())
+```
+
+## Loading the Raw Data into R
+For this study, I would like to use some datasets that I obtained from the National Health and Nutrition Examinaition Survey (NHANES) by National Center for Health Statistics by using `nhanesA` package. I would like to use the following datasets: 
+
+- Blood Pressure - Oscillometric Measurement (P_BPXO)
+- Smoking - Cigarette Use (P_SMQ)
+- Weight History (P_WHQ)
+- Income (P_INQ)
+- Sleep Disorder (P_SLQ)
+- Diabetes (P_DIQ)
+- Blood Pressure & Cholesterol (P_BPQ)
+
+```{r}
+library(nhanesA)
+
+#Blood pressure measurement
+bp_raw <- nhanes('P_BPXO') |> tibble()
+saveRDS(bp_raw, "BPX_J.Rds")
+bp_raw <- readRDS("BPX_J.Rds")
+
+# Smoking 
+smoke_raw <- nhanes('P_SMQ') |> tibble()
+saveRDS(smoke_raw, "P_SMQ.Rds")
+smoke_raw <- readRDS("P_SMQ.Rds")
+
+# Weight History
+weight_raw <- nhanes('P_WHQ') |> tibble()
+saveRDS(weight_raw, "P_WHQ.Rds")
+weight_raw <- readRDS("P_WHQ.Rds")
+
+# Income
+income_raw <- nhanes('P_INQ') |> tibble()
+saveRDS(income_raw, "P_INQ.Rds")
+income_raw <- readRDS("P_INQ.Rds")
+
+# Sleep Disorder
+sleep_raw <- nhanes('P_SLQ') |> tibble()
+saveRDS(sleep_raw, "P_SLQ.Rds")
+sleep_raw <- readRDS("P_SLQ.Rds")
+
+# Diabetes
+diabetes_raw <- nhanes('P_DIQ') |> tibble()
+saveRDS(diabetes_raw, "P_DIQ.Rds")
+diabetes_raw <- readRDS("P_DIQ.Rds")
+
+# Cholesterol level 
+chol_raw <- nhanes('P_BPQ') |> tibble()
+saveRDS(chol_raw, "P_BPQ.Rds")
+chol_raw <- readRDS("P_BPQ.Rds")
+```
+
+## Content of the Raw Tibbles 
+
+* For the first tible, `bp_raw`, it contains 12 variables with 11656 raws, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(bp_raw)
+```
+
+* For `smoke_raw`, it contains 16 variables with 11137 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(smoke_raw)
+```
+
+* For `weight_raw`, it contains 35 vairables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(weight_raw)
+```
+
+* For `income_raw`, it contains 3 variables with 15560 rows,including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(income_raw)
+```
+
+* For `sleep_raw`, it contains 11 variables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(sleep_raw)
+```
+
+* For `diabetes_raw`, it contains 28 variables with 14986 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(diabetes_raw)
+```
+
+* For `chol_raw`, it contains 11 variables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+
+```{r}
+dim(chol_raw)
+```
+## Merging Steps
+I would like to joining columns of these tables togehter by using inner join on `SEQN`. 
+It should contains 110 columns after the merging step.
+```{r}
+df_raw <- inner_join(bp_raw, smoke_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, weight_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, sleep_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, diabetes_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, income_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, chol_raw, by = "SEQN")
+dim(df_raw)
+```
+## Selecting Variables:
+I would like to use these variables for my study:
+
+- `SEQN` as the respondent sequence, which is unique for each patient. 
+- `BPXOSY1`, `BPXOSY2`, `BPXOSY3` determine the 1st, 2nd, and third systolic value of oscillometric reading, respectively, orignially from the Blood Pressure -  Oscillometric Measurement (P_BPXO) tibble (`bp_raw`). 
+- `BPXODI1`, `BPXODI2`, `BPXODI3` determine the 1st, 2nd, and third systolic value of oscillometric reading, respectively, originally from the Blood Pressure -  Oscillometric Measurement (P_BPXO) or (`bp_raw`) tibble.  
+- `SMQ020` from Smoking - Cigarette Use (P_SMQ) or `smoke_raw` tibble as if the participant smoke about 100 cigarettes in their lives. 
+- `WHD010` from Weight History (P_WHQ) or `weight_raw` tibble  as the self-report height of the participants. 
+- `WHD0120` from Weight History (P_WHQ) or `weight_raw` tibble  as the self-report weight of the participants.
+- `INDFMMPC` from Income (P_INQ) or `income_raw` tibble as family monthly poverty level category
+- `DIQ010` from Diabetes (P_DIQ) or `diabetes_raw` tibble as if the person was told by doctor that they have diabetes.
+- `SLD012` from Sleep Disorder (P_SLQ) or `sleep_raw` tibble as hours of sleep during weekdays of the participants
+- `SLD013` from Sleep Disorder (P_SLQ) or `sleep_raw` tibble as hours of sleep during weekends of the participants
+- `BPQ080` from Blood Pressure & Cholesterol (P_BPQ) or `chol_raw` tibble as being told to have high cholesterol level
+
+```{r}
+df <- df_raw[, c("SEQN", "BPXOSY1", "BPXOSY2", "BPXOSY3", "BPXODI1", "BPXODI2", "BPXODI3", "SMQ020", 'WHD020', 'WHD010', 'INDFMMPC', 'DIQ010', 'SLD012', 'SLD013', 'BPQ080')]
+```
+
+# Cleaning the Data 
+## Pre-processing Data
+I would like to check the missing values from my current tibble. 
+
+```{r}
+miss_var_summary(df) |> kable()
+```
+The missing percentage for each variable is quite small. Therefore, I would like to pre-process my data by filtering out those `missing` value, `don'know` value, and `refused` value. These values are specified in each variable where it originally come from. 
+
+This following snippet would to filter out those missing values. 
+```{r}
+df <- df[complete.cases(df),]
+``` 
+
+Then, I would like to filter out the value `7777` and `9999` from `WHD010` and `WHD020`. These values are stated for the refused (7777) and don't know (9999) value. 
+```{r}
+df <- df[df$WHD010 < 7777,]
+df <- df[df$WHD020 < 7777,]
+```
+
+I would like to filter out values `7` and `9` from `DIQ0101`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$DIQ010 < 7,]
+```
+
+I would like to filter out values `7` and `9` from `SMQ020`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <-df[df$SMQ020 < 7,]
+```
+
+I would like to filter out values `7` and `9` from `INDFMMPC`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$INDFMMPC < 7,]
+```
+Finally, I would like to filter out values `7` and `9` from `BPQ080 `. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$BPQ080 < 7,]
+```
+After all, this is my current tibble with 6837 rows and 15 columns. 
+```{r}
+dim(df)
+```
+
+## My Survey Items:
+
+### Quantitative Variables:
+
+- `BPXOSY1`, `BPXOSY2`, `BPXOSY3`:1st, 2nd, and third systolic value of oscillometric reading, respectively.
+- `BPXODI1`, `BPXODI2`, `BPXODI3`: 1st, 2nd, and third systolic value of oscillometric reading, respectively.
+- `SLD012`: hours of sleep during weekdays of the participants
+- `SLD013`:  hours of sleep during weekends of the participants
+- `WHD010`: the self-report height of the participants. 
+- `WHD0120`: the self-report weight of the participants.
+
+### Binary Variables:
+
+- `SMQ020`: the participant smoke about 100 cigarettes in their lives (Yes/No)
+- `BPQ080` : being told to have high cholesterol level (Yes/No)
+
+### Multi-Category Variables:
+
+- `INDFMMPC` from Income (P_INQ) or `income_raw` tibble as family monthly poverty level category (1 as Monthly poverty level index =1.30 , 2 as 1.30 < Monthly poverty level index = 1.85 , 3 as Monthly poverty level index >1.85)
+- `DIQ010` : the person was told by doctor that they have diabetes (Yes/No/Borderline)
+
+```{r}
+glimpse(df)
+```
+
+My analytic tibble will be called as `df` that includes the following items:
+
+ - This tibble will need to contain information developed from the variables listed above  with the subject identifying number `SEQN`
+ - For those quantitative variables, I would also like to check as if they have reasonable range. 
+
+## Checking our Quantitative Variables
+
+In this study, I have 10 quantitative variables.I want to check the range for each of them to ensure there are no abnormal value.
+
+```{r message = FALSE}
+df |>
+  select(BPXOSY1, BPXOSY2, BPXOSY3, BPXODI1, BPXODI2, BPXODI3, WHD010, WHD020, SLD012, SLD013) |>
+  mosaic::inspect()
+```
+We can see that the range for each variable regarding to each meaning are quite reasonable. Therefore, I would like to proceed into next step. 
+
+### Processing Height and Weight Value to Calculate the Body Mass Index (BMI)
+
+In this study,instead of using weight and height, I would like to use them for calculating BMI. The BMI formula for inches and pounds is available at http://www.bmi-calculator.net/bmi-formula.php. 
+Normally, the normal range for BMI would be reasonable from 15 to 50. However, since NHANES's purpose was to collect data prevalence of chronic conditions in the population in the U.S. Due to this, the range can be go over or under the normal reasonable range. Therefore, getting values of BMI above 50 or slightly under 15 as below would be considered as acceptable. However, in order to confirm it, I would like to check the range value for the height and weight. 
+
+```{r}
+df['BMI'] <-df$WHD020*703/(df$WHD010)**2
+describe(~ BMI, data = df)
+```
+
+As we can see in here, the range of weight are quite big as there are people go up to 457 lbs. The tallest person also have the height of 82 inches (6' 8''). These are quite rare in normal, but if we consider as sampling people in the population, there would be some exceptional cases. Therefore, I would leave these values to be intact.
+
+```{r}
+df|>
+  select(WHD020, WHD010) |>
+  describe()
+```
+
+### Average the Systolic and Diastolic Values:
+Instead of getting 3 values for each systolic and diastolic reading, I would like to average them out.
+```{r}
+df['systolic'] <- as.numeric(format(round(rowMeans(df[,c("BPXOSY3","BPXOSY2","BPXOSY1")]), 1), nsmall = 1))
+df['diastolic'] <- as.numeric(format(round(rowMeans(df[,c("BPXODI1","BPXODI2","BPXODI3")]), 1), nsmall = 1))
+```
+
+Then, I would like to see their range. The normal people should have systolic/diastolic as 90/60. However, for some people who have abnormal blood pressure (i.e hypotension, high blood pressure, hypertension), the range can be out of scope. As there are cases that people with hypertension crisis can have systolic to be over 200/diastolic over 120 or hypotension with systolic to be under 90/diastolic to be under 60 (but over 40), the range describes below are reasonable to be keep intact. 
+```{r}
+df |>
+  select(systolic, diastolic) |>
+  describe()
+```
+
+### Average Hours of Sleep
+Instead of having hours of sleep during the weekdays and weekends separately, I would like to keep one value by average these two hours. 
+```{r}
+df['SleepHours'] <- as.numeric(format(round(rowMeans(df[,c('SLD012', 'SLD013')]), 1), nsmall = 1))
+```
+
+Then, I would like to check the range of this values. In the original study, the hours of sleep going from 2 to 14. Then, the average range, if normal, should be within this scope. 
+```{r}
+df |>
+  select(SleepHours) |>
+  describe()
+```
+As we can see that the range is falling within the scope that we anticipated. Therefore, this value is normal. 
+
+## Checking Binary Variables
+My binary vairables including `SMQ020` and `BPQ080`
+### For `SMQ020` Variables
+```{r}
+df |> select(SMQ020) |> glimpse()
+```
+From the original tibble,   `1` denotes Yes, and `2` denotes No. Therefore, I would like to change it into Yes/No value and factor it. 
+
+```{r}
+df <- df %>% mutate(smoking = fct_recode(factor(SMQ020), "Yes" = "1", "No" = "2"))
+df  |> select(smoking) |> summary()
+```
+There are no values that out of range. 
+
+### For `BPQ080` Variables
+```{r}
+df |> select(BPQ080) |> glimpse()
+```
+From the original tibble,   `1` denotes Yes, and `2` denotes No. Therefore, I would like to change it into Yes/No value and factor it. 
+
+```{r}
+df <- df %>% mutate(highchol = fct_recode(factor(BPQ080), "Yes" = "1", "No" = "2"))
+df  |> select(highchol) |> summary()
+```
+There are no values that out of range. 
+
+## Checking Multi-Category Variables
+I have two multi-category variables: `INDFMMPC`, and `DIQ010`. I will first check them if they have any surprising values and they will rename and factor it to mirror what we need in our analyses.
+
+### The `INDFMMPC` vairable
+First, I would take a look at this variable.
+```{r}
+df |> tabyl(INDFMMPC) |> kable()
+```
+For this variable, I would like to create a new factor called `eco_status`which is a factor which has specially level names: `1` as `Lower, `2` as `Middle`, and `3` for `Upper`. 
+```{r}
+df <- df %>% mutate(eco_status = fct_recode(factor(INDFMMPC), "Lower" = "1", "Middle" = "2", "Upper" = "3"))
+```
+
+After that, I would check if I factor them correctly.
+```{r}
+df |> count(INDFMMPC, eco_status) |> kable()
+```
+### The `DIQ010` Vairable
+First, I would take a look at this variable.
+```{r}
+df |> tabyl(DIQ010) |> kable()
+```
+
+For this variable, I would like to create a new factor called `diabetes`which is a factor which has specially level names: `1` as `Yes`, `2` as `No`, and `3` for `Borderline`. 
+```{r}
+df <- df %>% mutate(diabetes = fct_recode(factor(DIQ010), "Yes" = "1", "No" = "2", "Borderline" = "3"))
+```
+
+After that, I would check if I factor them correctly.
+```{r}
+df |> count(DIQ010, diabetes) |> kable()
+```
+## Creating Analytic Tibbles
+So our analytic tibble, which I will call as `df` should contains 7 values after processing. 
+
+```{r}
+df <- df %>% select(SEQN,systolic, diastolic, BMI, SleepHours, smoking, eco_status, diabetes, highchol)
+```
+
+## List of Missing Values
+As I already filter those don't know/missing values above, our analytic tibble should not contain any of these values
+```{r}
+miss_var_summary(df) |> kable()
+```
+# Codebook and Data Description
+
+## Codebook
+The 9 variables of my analytic tibble would be described below. The Type column indicates the number of levels in each categorical (factor) variable. As for the Type information, I’m using Quant to indicate quantitative variables, and Cat-x indicates a categorical variable (factor) with x levels.
+
+Variable| Type | Description/Levels
+--------|------|-------------------
+SEQN | id | respondent sequence, unique for each participants. 
+systolic | Quant | Average of systolic readings
+diastolic | Quant | Average of diastolic readings
+BMI | Quant | Body Mass Index
+SleepHours | Quant | Average sleeping hours a week
+smoking | Cat - 2 | Yes, No: Did you smoke 100 cigarettes in life?
+eco_status | Cat - 3| Lower Class, Middle Class, Upper Class: 
+diabetes | Cat - 3| Yes, No, Borderline: Have doctor told you that you have diabetes?
+highchol | Cat - 2 | Yes, No: Have doctor told you that you have high cholesterol?
+
+## Analytic Tibble
+```{r}
+df
+```
+## Data Summary 
+```{r}
+Hmisc::describe(df |> select(-SEQN))
+```
+# Analysis B:Comparing 2 Means with Independent Samples
+## The Questions
+We’ll compare `BMI` by cholesterol level in this analysis using independent samples. We’re comparing the mean `BMI` of the population represented by respondents who have high cholesterol to the mean BMI of the population represented by the respondents who don't have cholesterol. Since the `SEQN` are unique for each respondents, and each respondent only got to answer Yes or No during the survey, so the samples are not either paired or matched any way. In addition, there are difference in people who have high-cholesterol and people without it, so there is not way their BMI values could be paired. As a result, we’re going to be interested in looking at the two samples separately to help us understand issues related to hypothesis testing assumptions. For this analysis, I would like to use 90% confidence level. 
+
+Our research question is:
+Did people who have cholesterol would be associated of having higher body mass index values than people who don't have high cholesterol?
+
+## Describing the Data
+I’ll start by looking at the range of the BMI data within each cholesterol group
+```{r}
+mosaic::favstats(BMI ~ highchol, data = df) |>
+  kable(digits = 2)
+```
+There are no missing values for each group of cholesterol level as I already filtered it out at the beginning. 
+### Graphical Summaries
+```{r}
+ggplot(df, aes(x = highchol, y = BMI, fill = highchol)) + 
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.3, notch = TRUE) +
+  guides(fill = FALSE) +
+  labs(title = "BMI data somewhat right skewed in each group",
+       x = "Having high cholesterol?", y = "Body Mass Index") +
+  theme_bw()
+
+```
+From the boxplot (with notches and violin), we could see that I have a lot of outliners at the high end, which suggested that I may have a right-skewed. Therefore, I would like to double-check it with Q-Q Plot. 
+```{r}
+ggplot(df, aes(sample = BMI, col = highchol)) +
+  geom_qq() + geom_qq_line() +
+  facet_wrap(~ highchol, labeller = "label_both") +
+  guides(col = FALSE) +
+  theme_bw() +
+  labs(y = "Observed BMI values",
+       title = "BMI isn't well fit by a Normal model in either group")
+```
+We can see that for both Cholesterol group, they have a very clear right-skewed. Therefore, it is not reasonable to assume the Normality here, or even symmetry. 
+
+### Numerical Summaries
+```{r}
+mosaic::favstats(BMI ~ highchol, data = df) |> 
+  kable()
+```
+```{r}
+df |> group_by(highchol) |>
+  summarize(skew1 = round_half_up((mean(BMI) - median(BMI))/sd(BMI), 3))
+```
+Even the skew1 values for both of cholesterol group are not fairly substantial right-skewed as they are not reached 0.2, but they were both really close to this value. Therefore, with the Q-Q Plot and those skew1 value, it is not reasonable to assume Normality here. 
+
+```{r}
+#df <- df %>% mutate(highchol_group = as.character(highchol))
+df |> group_by(highchol) %>% summarize(n = n(), mean = mean(BMI), variance = var(BMI))
+```
+When calculate the variance for both of the cholesterol group, we could see that they are also different. Therefore, we cannot assume that they both have equal variance. 
+
+## Main analysis 
+Since we cannot assume that the distribution of BMI for each group are normally as well as the variance are equal, we are now using Bootstrap with 90% confidence interval for comparing `BMI` for people who answered Yes and No to the question about being told to have high cholesterol. 
+
+Here is a 90% confidence interval for the difference between the cholesterol and non-cholesterol population BMI distributions based on the bootstrap using a seed of 42. 
+
+```{r}
+set.seed(42)
+bootdif(df$BMI, df$highchol, conf.level = 0.90) 
+```
+
+- The population mean BMI in those who said No is estimated to be about 1.29 points lower than the population mean BMI for those who said Yes, based on our samples. So the mean differences’ point estimate is -1.29
+- Our 90% confidence interval for the difference (No - Yes) of the population means is (-1.57, -1.01).
+- Here, I’ve assumed a two-sided confidence interval procedure. We conclude from the confidence interval that the difference between the true means of the cholesterol and non-cholesterol bmi levels is negative, based on our analysis. 
+- The assumptions of this bootstrap procedure are:
+  - that the samples in each group are drawn independently of each other,
+  - and that the samples in each group represent a random sample of the population of interest.
+  
+## Conclusions
+We find a range of possible values for the difference between the population mean BMI for those who were told to have cholesterol and those who weren't, based on our sample of respondents with complete data on BMI. Since this confidence interval doesn't include 0, we could say that it is significant. Therefore, we are 90% confidence that the difference between the population mean BMI for those who were told to have cholesterol and those who weren't is 1.29.This conclusion is motivated by a bootstrap estimate to compare the two groups (cholesterol and non-cholesterol) with complete data on BMI.
+One of the limitation I believe that leading to the use of Bootstrap is that we can neither assume normality or equal variance. This could be a side-effect of filtering the missing values or don't know value from the table at the beginning. In addition to that, when we merged different columns by inner join on SEQN, some of the data was also be lost during this process, which can lead to the skewness of our data. 
+
+# Analysis C: Comparing 3 Means with Independent Samples
+## The Questions
+I’ll compare `BMI` by `diabetes` in this analysis, using the analysis of variance, and related tools. We’re comparing the mean `BMI`  of the population represented by the respondents who got diabetes, to the population represented by the respondents who don't have diabetes, to the population represented by the respondents who were told that they are at borderline to have diabetes. There is no link between subjects across the three groups as each person has different unique identifier number, so the samples are independent. Plus, as we’ll see, there are different numbers of subjects in the three diabetes groups, so there’s no way their `BMI` values could be matched. As a result, we’re going to be interested in looking at the three samples separately to help us understand issues related to hypothesis testing assumptions. I would like to use 90% confidence interval. 
+ This analysis would help to answer the research question that if the person who has diabetes would likely to have less hours of sleep?
+ 
+## Describing the Data
+I’ll start by looking at the range of the `BMI` data within each `diabetes` group.
+```{r}
+mosaic::favstats(BMI ~ diabetes, data = df)
+```
+The distribution for the diabetes group are not fairly as the people who don't have diabetes outweighted other groups. 
+
+```{r}
+describe(df$diabetes)
+```
+As we can see, there are no missing values for this variable as I already filter it out before this. 
+
+### Graphical Summaries
+
+I would like to investigate the distribution of three independent samples as I will plot each of the groups in a comparison boxplot.
+```{r messange = FALSE, warning = FALSE}
+ggplot(df, aes(x = diabetes, y = BMI, fill = diabetes)) +
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.3) +
+  coord_flip() +
+  guides(fill = FALSE) +
+  theme_bw() +
+  labs(title = "BMI by diabetes",
+       x = "Diabetes Indicator",
+       y = "BMI")
+```
+We can see that our groups have a lot of outliners. Moreover, it seems like the variance across three groups are not equally to each other. However, it seems like all three groups are right-skewed. 
+
+Even though we have such a large sample size, but because of the numbers of respondents in each group are not equally to each other, the histogram would look odds in this case. However, from the histogram, we can also see that it looks right-skewed. 
+
+```{r message=FALSE}
+
+ggplot(df, aes(x = BMI)) +
+  geom_histogram(aes(fill = diabetes), bins = 10, col = "white") +
+  theme_bw() +
+  facet_wrap(~ diabetes, labeller = "label_both") +
+  guides(fill = FALSE) +
+  labs(title = "BMI that associated with diabetes",
+       y = "BMI",
+       x = "diabetes group")
+
+```
+## Main analysis 
+### Comparing BMI across three diabetes group
+```{r}
+by(df$BMI, df$diabetes, mosaic::favstats)
+```
+
+When comparing the quotient between three groups of diabetes, we could see that the first quotient of yes is the highest, following by the borderline, and then diabetes. This applies the same for other quotient, which gives us a sense that people who have higher BMI is more likely having diabetes.
+
+### Kruskal-Wallis Test
+Since the distributions of three groups of diabetes are not normally distributed, Kruskal-Wallis Test would likely to be helpful as it doesn't have any assumption about Normality. 
+```{r}
+kruskal.test(BMI ~ diabetes, data = df)
+```
+This result suggests only that the separation we observe between the BMI for the three diabetes categories is consistent with some true differences between those groups as the p-value is below 0.1.
+
+In my study, even  distribution of BMI are not normally, and the variance/sample size of these groups are also very different from each other, I would also want to run the ANOVA test
+
+### Analysis of Variance
+The Analysis of Variance compares the means of BMI in the three diabetes group. We can run the analysis using either of two approaches, each of which we’ll show in what follows.
+```{r}
+lm(BMI ~ diabetes, data = df) |>
+  anova()
+```
+From the analysis, it is consistent with the fact that there are a true difference between the BMI mean for 3 diabetes categories. 
+
+### Tukey’s Honestly Significant Differences approach to Pairwise Comparisons of Means
+```{r}
+aov(df$BMI ~ df$diabetes) |> summary()
+```
+Now, we run the Tukey HSD comparisons, both in a plot and table of results. As specified previously, we’ll use a 90% confidence level across the set of comparisons.
+```{r}
+TukeyHSD(aov(df$BMI ~ df$diabetes), conf.level = 0.90)
+```
+The confidence interval suggests that the group that has no diabetes would have lower BMI comparing to the group has diabetes or at borderline. These difference are significant. The group at the borderline would have lower BMI comparing to the group has diabetes. However, this different is not significant at all as the p-value is larger than 0.1
+```{r}
+mar.default <- c(5,6,4,2) + 0.1
+par(mar = mar.default + c(0, 4, 0, 0))
+plot(TukeyHSD(aov(df$BMI ~ df$diabetes),
+              conf.level = 0.90), las = 1)
+par(mar = mar.default)
+```
+
+
+## Conclusions
+Since I can only use Kruskal-Wallis Test for this study, and it returned that there are some true differences between those groups as the p-value is below 0.1. Even our data for this analysis doesn't qualify all the ANOVA assumptions, but based on the analysis of ANOVA, it also agrees with the Kruskal-Wallis Tes as there are some true difference between those group, i.e between group without diabetes with group has diabetes and at borderline. This helps to answer our research question that the people who has diabetes would likely to have higher BMI.
+
+Since we use ANOVA test without caring about its assumption, I believe that this result is not reliable. In order to improving it, I should better do some transformation, or looking back at my filtering step in order to get more values as some of these value may be filtered out at the beginning. 
+
+# Analysis D: Analyzing a 2x2 table
+## The Questions
+
+I'll look at the association between two categorical factors that I created earlier: `smoking` and `highchol` in this analysis. I am interested in whether there is an association between smoking and high cholesterol level. Both of these values have 2 levels. For the analysis, I would like to use 90% confidence level. 
+
+## Describing the Data
+```{r}
+table(df$smoking, df$highchol) |> kable() 
+```
+```{r}
+df_D <- df |>
+  select(SEQN, smoking, highchol) |>
+  mutate(smoking_r = fct_recode(factor(smoking),
+                                "No Smoking" = "No",
+                                "Smoking" = "Yes"),
+         smoking_r = fct_relevel(smoking_r, "Smoking"),
+         highchol_r = fct_recode(factor(highchol),
+                                 "No High Cholesterol" = "No",
+                                 "High Cholesterol" = "Yes"),
+         highchol_r = fct_relevel(highchol_r, "High Cholesterol"))
+```
+
+```{r}
+df_D |> tabyl(smoking_r,highchol_r) |> kable() 
+```
+
+## Main analysis 
+
+```{r}
+t1 <- table(df_D$smoking_r, df_D$highchol_r)
+
+twoby2(t1 , conf.level = 0.90) 
+
+```
+
+## Conclusions
+From the table, we could see that both the exact p-value and asymptotic p-value from our 2x2 analysis that are below 0.1, which determines that there is a significant difference between non-smoking and smoking version when it comes to the high cholesterol. In this case, people who smoking turn out having a higher chance of being high cholesterol. 
+
+# Analysis E: Two-way(3 x 3) Contingency Table
+## The Questions
+
+I'll look at the association between two categorical factors that I created earlier: `diabetes` and `eco_status` in this analysis. I am interested in whether there is an association between diabetes and economic status. Both of these values have 3 levels. For the analysis, I would like to use 90% confidence level. 
+
+## Describing the Data
+Let’s store this initial table of interest as `table_E1`
+```{r}
+table_E1 <- table(df$diabetes, df$eco_status)
+
+table_E1 |> kable()
+```
+
+I could add the marginal totals:
+
+```{r}
+df |>
+  tabyl(diabetes, eco_status) |>
+  adorn_totals(where = c("row", "col")) 
+```
+The research question is wheter the lower class you are, the higher chance that you have diabetes.
+## Main analysis 
+
+### Running the Pearson χ2 Test
+I’ll run the Pearson χ2 test using:
+```{r}
+chisq.test(table_E1)
+```
+
+### Checking Assumptions - The Cochran Conditions
+The “Cochran conditions”, which require that we have:
+
+* no cells with 0 counts
+* at least 80% of the cells in our table with counts of 5 or higher
+* expected counts in each cell of the table should be 5 or more
+
+My `table_E1` meets all the Cochran conditions above
+
+### An Association Plot for the 3x3 Table
+```{r}
+assocplot(table_E1)
+```
+##Conclusions
+Using the `table_E1` here, we can see that the p-value is  0.06655 < 0.1. In addition, from the assocplot, we could see that people at upper level, they tend to be at no and borderline of diabetes, and less likely to have diabetes. For people in the lower class, they are less likely to be at the borderline, but they have quite the same amount of having diabetes and not. For people at the middle class, they tend to have diabetes, and borderline, but less likely to do not have diabetes. From this, we can see that, if we go from the upper class to the lower class, the chance of having diabetes increases, and the chance of not having diabetes decreases. This alongs with the p-value, it helps to determine that we are 90% confidence that the lower class you are, the higher chance you have diabetes. 
+
+One of the main reason why it behaves a little bit weirdly in the middle class is that this class has much less number of respondents comparing to the lower and upper class. This may be due to our filtering out the missing values and don't know value as well as the merging step that wiped out the respondents in this class. 
+
+# Session Information
+```{r}
+sessionInfo()
+```

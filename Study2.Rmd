@@ -1,0 +1,810 @@
+---
+title: "Project B - Study 2"
+author: "Quynh Nguyen"
+params:
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    number_sections: TRUE
+    code_folding: show
+    code_download: TRUE
+---
+# Setup and Data Ingest
+## Initial Setup and Package Loads
+```{r setup, include=FALSE}
+library(knitr); library(rmdformats)
+
+library(janitor); library(naniar)
+library(broom); library(patchwork)
+
+library(readxl)
+library(Epi)
+library(Hmisc)
+library(tidyverse) 
+library(patchwork)
+library(car)
+library(equatiomatic)
+library(GGally)
+
+## Load Love-boost 
+source("/Users/quynhnguyen/Documents/Study Materials/boost.r")
+opts_chunk$set(comment=NA)
+opts_knit$set(width=75)
+
+theme_set(theme_bw())
+```
+
+## Loading the Raw Data into R
+For this study, I would like to use some datasets that I obtained from the National Health and Nutrition Examinaition Survey (NHANES) by National Center for Health Statistics by using `nhanesA` package. I would like to use the following datasets: 
+
+- Blood Pressure - Oscillometric Measurement (P_BPXO)
+- Smoking - Cigarette Use (P_SMQ)
+- Weight History (P_WHQ)
+- Income (P_INQ)
+- Sleep Disorder (P_SLQ)
+- Diabetes (P_DIQ)
+- Blood Pressure & Cholesterol (P_BPQ)
+
+```{r}
+library(nhanesA)
+
+#Blood pressure measurement
+bp_raw <- nhanes('P_BPXO') |> tibble()
+saveRDS(bp_raw, "BPX_J.Rds")
+bp_raw <- readRDS("BPX_J.Rds")
+
+# Smoking 
+smoke_raw <- nhanes('P_SMQ') |> tibble()
+saveRDS(smoke_raw, "P_SMQ.Rds")
+smoke_raw <- readRDS("P_SMQ.Rds")
+
+# Weight History
+weight_raw <- nhanes('P_WHQ') |> tibble()
+saveRDS(weight_raw, "P_WHQ.Rds")
+weight_raw <- readRDS("P_WHQ.Rds")
+
+# Income
+income_raw <- nhanes('P_INQ') |> tibble()
+saveRDS(income_raw, "P_INQ.Rds")
+income_raw <- readRDS("P_INQ.Rds")
+
+# Sleep Disorder
+sleep_raw <- nhanes('P_SLQ') |> tibble()
+saveRDS(sleep_raw, "P_SLQ.Rds")
+sleep_raw <- readRDS("P_SLQ.Rds")
+
+# Diabetes
+diabetes_raw <- nhanes('P_DIQ') |> tibble()
+saveRDS(diabetes_raw, "P_DIQ.Rds")
+diabetes_raw <- readRDS("P_DIQ.Rds")
+
+# Cholesterol level 
+chol_raw <- nhanes('P_BPQ') |> tibble()
+saveRDS(chol_raw, "P_BPQ.Rds")
+chol_raw <- readRDS("P_BPQ.Rds")
+```
+## Content of the Raw Tibbles 
+
+* For the first tible, `bp_raw`, it contains 12 variables with 11656 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(bp_raw)
+```
+
+* For `smoke_raw`, it contains 16 variables with 11137 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(smoke_raw)
+```
+
+* For `weight_raw`, it contains 35 vairables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(weight_raw)
+```
+
+* For `income_raw`, it contains 3 variables with 15560 rows,including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(income_raw)
+```
+
+* For `sleep_raw`, it contains 11 variables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(sleep_raw)
+```
+
+* For `diabetes_raw`, it contains 28 variables with 14986 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+```{r}
+dim(diabetes_raw)
+```
+
+* For `chol_raw`, it contains 11 variables with 10195 rows, including the unique identifier, i.e `SEQN` as respondent sequence, which is unique for each patient for each participant.
+
+```{r}
+dim(chol_raw)
+```
+## Merging Steps
+I would like to joining columns of these tables togehter by using inner join on `SEQN`. 
+It should contains 110 columns after the merging step.
+```{r}
+df_raw <- inner_join(bp_raw, smoke_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, weight_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, sleep_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, diabetes_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, income_raw, by = "SEQN")
+df_raw <- inner_join(df_raw, chol_raw, by = "SEQN")
+dim(df_raw)
+```
+## Selecting Variables:
+I would like to use these variables for my study:
+
+- `SEQN` as the respondent sequence, which is unique for each patient. 
+- `BPXOSY1`, `BPXOSY2`, `BPXOSY3` determine the 1st, 2nd, and third systolic value of oscillometric reading, respectively, orignially from the Blood Pressure -  Oscillometric Measurement (P_BPXO) tibble (`bp_raw`). 
+- `BPXODI1`, `BPXODI2`, `BPXODI3` determine the 1st, 2nd, and third systolic value of oscillometric reading, respectively, originally from the Blood Pressure -  Oscillometric Measurement (P_BPXO) or (`bp_raw`) tibble.  
+- `SMQ020` from Smoking - Cigarette Use (P_SMQ) or `smoke_raw` tibble as if the participant smoke about 100 cigarettes in their lives. 
+- `WHD010` from Weight History (P_WHQ) or `weight_raw` tibble  as the self-report height of the participants. 
+- `WHD0120` from Weight History (P_WHQ) or `weight_raw` tibble  as the self-report weight of the participants.
+- `INDFMMPC` from Income (P_INQ) or `income_raw` tibble as family monthly poverty level category
+- `DIQ010` from Diabetes (P_DIQ) or `diabetes_raw` tibble as if the person was told by doctor that they have diabetes.
+- `SLD012` from Sleep Disorder (P_SLQ) or `sleep_raw` tibble as hours of sleep during weekdays of the participants
+- `SLD013` from Sleep Disorder (P_SLQ) or `sleep_raw` tibble as hours of sleep during weekends of the participants
+- `BPQ080` from Blood Pressure & Cholesterol (P_BPQ) or `chol_raw` tibble as being told to have high cholesterol level
+
+```{r}
+df <- df_raw[, c("SEQN", "BPXOSY1", "BPXOSY2", "BPXOSY3", "BPXODI1", "BPXODI2", "BPXODI3", "SMQ020", 'WHD020', 'WHD010', 'INDFMMPC', 'DIQ010', 'SLD012', 'SLD013', 'BPQ080')]
+```
+
+# Cleaning the Data 
+## Pre-processing Data
+I would like to check the missing values from my current tibble. 
+
+```{r}
+miss_var_summary(df) |> kable()
+```
+The missing percentage for each variable is quite small. Therefore, I would like to pre-process my data by filtering out those `missing` value, `don'know` value, and `refused` value. These values are specified in each variable where it originally come from. 
+
+This following snippet would to filter out those missing values. 
+```{r}
+df <- df[complete.cases(df),]
+``` 
+
+Then, I would like to filter out the value `7777` and `9999` from `WHD010` and `WHD020`. These values are stated for the refused (7777) and don't know (9999) value. 
+```{r}
+df <- df[df$WHD010 < 7777,]
+df <- df[df$WHD020 < 7777,]
+```
+
+I would like to filter out values `7` and `9` from `DIQ0101`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$DIQ010 < 7,]
+```
+
+I would like to filter out values `7` and `9` from `SMQ020`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <-df[df$SMQ020 < 7,]
+```
+
+I would like to filter out values `7` and `9` from `INDFMMPC`. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$INDFMMPC < 7,]
+```
+Finally, I would like to filter out values `7` and `9` from `BPQ080 `. These values are stated for the refused (7) and don't know (9) value. 
+```{r}
+df <- df[df$BPQ080 < 7,]
+```
+After all, this is my current tibble with 6837 rows and 15 columns. 
+```{r}
+dim(df)
+```
+
+## Checking Quantitative Variables
+```{r}
+df %>% select(BPXOSY1, BPXOSY2, BPXOSY3, BPXODI1, BPXODI2, BPXODI3, WHD010, WHD020, SLD012, SLD013) %>% mosaic::inspect() 
+```
+
+```{r}
+glimpse(df)
+
+```
+
+## Checking our Quantitative Variables
+
+In this study, I have 10 quantitative variables.I want to check the range for each of them to ensure there are no abnormal value.
+
+```{r}
+df |>
+  select(BPXOSY1, BPXOSY2, BPXOSY3, BPXODI1, BPXODI2, BPXODI3, WHD010, WHD020, SLD012, SLD013) |>
+  mosaic::inspect()
+```
+
+We can see that the range for each variable regarding to each meaning are quite reasonable. Therefore, I would like to proceed into next step. 
+
+###Processing Height and Weight Value to Calculate the Body Mass Index (BMI)
+
+In this study,instead of using weight and height, I would like to use them for calculating BMI. The BMI formula for inches and pounds is available at http://www.bmi-calculator.net/bmi-formula.php. 
+Normally, the normal range for BMI would be reasonable from 15 to 50. However, since NHANES's purpose was to collect data prevalence of chronic conditions in the population in the U.S. Due to this, the range can be go over or under the normal reasonable range. Therefore, getting values of BMI above 50 or slightly under 15 as below would be considered as acceptable. However, in order to confirm it, I would like to check the range value for the height and weight. 
+
+```{r}
+df['BMI'] <-df$WHD020*703/(df$WHD010)**2
+describe(~ BMI, data = df)
+```
+
+
+As we can see in here, the range of weight are quite big as there are people go up to 457 lbs. The tallest person also have the height of 82 inches (6' 8''). These are quite rare in normal, but if we consider as sampling people in the population, there would be some exceptional cases. Therefore, I would leave these values to be intact.
+
+```{r}
+df|>
+  select(WHD020, WHD010) |>
+  describe()
+```
+
+### Average the Systolic and Diastolic Values:
+Instead of getting 3 values for each systolic and diastolic reading, I would like to average them out.
+```{r}
+df['systolic'] <- as.numeric(format(round(rowMeans(df[,c("BPXOSY3","BPXOSY2","BPXOSY1")]), 1), nsmall = 1))
+df['diastolic'] <- as.numeric(format(round(rowMeans(df[,c("BPXODI1","BPXODI2","BPXODI3")]), 1), nsmall = 1))
+```
+
+Then, I would like to see their range. The normal people should have systolic/diastolic as 90/60. However, for some people who have abnormal blood pressure (i.e hypotension, high blood pressure, hypertension), the range can be out of scope. As there are cases that people with hypertension crisis can have systolic to be over 200/diastolic over 120 or hypotension with systolic to be under 90/diastolic to be under 60 (but over 40), the range describes below are reasonable to be keep intact. 
+```{r}
+df |>
+  select(systolic, diastolic) |>
+  describe()
+```
+
+### Average Hours of Sleep
+Instead of having hours of sleep during the weekdays and weekends separately, I would like to keep one value by average these two hours. 
+```{r}
+df['SleepHours'] <- as.numeric(format(round(rowMeans(df[,c('SLD012', 'SLD013')]), 1), nsmall = 1))
+```
+
+Then, I would like to check the range of this values. In the original study, the hours of sleep going from 2 to 14. Then, the average range, if normal, should be within this scope. 
+```{r}
+df |>
+  select(SleepHours) |>
+  describe()
+```
+
+## Checking Binary Variables
+My binary vairables including `SMQ020` and `BPQ080`
+### For `SMQ020` Variables
+```{r}
+df |> select(SMQ020) |> glimpse()
+```
+From the original tibble,   `1` denotes Yes, and `2` denotes No. Therefore, I would like to change it into Yes/No value and factor it. 
+
+```{r}
+df <- df %>% mutate(smoking = fct_recode(factor(SMQ020), "Yes" = "1", "No" = "2"))
+df  |> select(smoking) |> summary()
+```
+
+There are no values that out of range. 
+
+### For `BPQ080` Variables
+```{r}
+df |> select(BPQ080) |> glimpse()
+```
+From the original tibble,   `1` denotes Yes, and `2` denotes No. Therefore, I would like to change it into Yes/No value and factor it. 
+
+```{r}
+df <- df %>% mutate(highchol = fct_recode(factor(BPQ080), "Yes" = "1", "No" = "2"))
+df  |> select(highchol) |> summary()
+```
+There are no values that out of range. 
+
+## Checking Multi-Category Variables
+I have two multi-category variables: `INDFMMPC`, and `DIQ010`. I will first check them if they have any surprising values and they will rename and factor it to mirror what we need in our analyses.
+
+## The `INDFMMPC` vairable
+First, I would take a look at this variable.
+```{r}
+df |> tabyl(INDFMMPC) |> kable()
+```
+
+For this variable, I would like to create a new factor called `eco_status`which is a factor which has specially level names: `1` as `Lower, `2` as `Middle`, and `3` for `Upper`. 
+```{r}
+df <- df %>% mutate(eco_status = fct_recode(factor(INDFMMPC), "Lower" = "1", "Middle" = "2", "Upper" = "3"))
+```
+
+After that, I would check if I factor them correctly.
+```{r}
+df |> count(INDFMMPC, eco_status) |> kable()
+```
+
+## The `DIQ010` Vairable
+First, I would take a look at this variable.
+```{r}
+df |> tabyl(DIQ010) |> kable()
+```
+
+For this variable, I would like to create a new factor called `diabetes`which is a factor which has specially level names: `1` as `Yes`, `2` as `No`, and `3` for `Borderline`. 
+```{r}
+df <- df %>% mutate(diabetes = fct_recode(factor(DIQ010), "Yes" = "1", "No" = "2", "Borderline" = "3"))
+```
+
+After that, I would check if I factor them correctly.
+```{r}
+df |> count(DIQ010, diabetes) |> kable()
+```
+
+## Creating Analytic Tibles 
+So our analytic tibble, which I will call as `df` should contains 7 values after processing. 
+
+```{r}
+df <- df %>% select(SEQN,systolic, diastolic, BMI, SleepHours, smoking, eco_status, diabetes, highchol)
+```
+
+## List of Missing Values
+As I already filter those don't know/missing values above, our analytic tibble should not contain any of these values
+```{r}
+miss_var_summary(df) |> kable()
+```
+# Codebook and Data Description
+
+## Codebook
+The 9 variables of my analytic tibble would be described below. The Type column indicates the number of levels in each categorical (factor) variable. As for the Type information, I’m using Quant to indicate quantitative variables, and Cat-x indicates a categorical variable (factor) with x levels.
+
+Variable| Type | Description/Levels
+--------|------|-------------------
+SEQN | id | respondent sequence, unique for each participants. 
+systolic | Quant | **outcome** variable, Average of systolic readings
+diastolic | Quant | Average of diastolic readings
+BMI | Quant | **key predictor** Body Mass Index
+SleepHours | Quant | Average sleeping hours a week
+smoking | Cat - 2 | Yes, No: Did you smoke 100 cigarettes in life?
+eco_status | Cat - 3| Lower Class, Middle Class, Upper Class: 
+diabetes | Cat - 3| Yes, No, Borderline: Have doctor told you that you have diabetes?
+highchol | Cat - 2 | Yes, No: Have doctor told you that you have high cholesterol?
+
+
+## Analytic Tible
+```{r}
+df
+```
+
+```{r}
+is_tibble(df)
+```
+
+## Data Summary 
+```{r}
+Hmisc::describe(df |> select(-SEQN))
+```
+
+Since I already filter out all missing values and other noisy ones, it should return no missing values for each variable. 
+
+# My Research Question
+From Center of Disease Control and Prevention (CDC), nearly half of adults in the U.S (47% or 116 million people) have hypertension, which is defined as systolic blood pressure greater than 130 mmHg or diastolic blood pressure greater than 80 mmHg.  Having hypertension puts you at risk for heart disease and stroke, which are top 10 of leading causes of death in the U.S.
+
+There are various of factors that can lead to high blood pressure, such as age, race, family history, physical activities, weight, smoking, stress, certain chronic condition, sleep disorder. Therefore, in this study, I would like to choose serveral risk factors in order to investigate about blood pressure, which includes: weight, smoke (cigarettes), income, sleep disorder, and diabetes from the dataset from National Center of Health Statistics during 2017 to 2020 before the pandemic. 
+
+In addition, in reality, to address one's blood pressure, the heatlhcare professionals would use both systolic and diastolic readings. However, since I can only use one outcome, I would like to use systolic over diastolic as outcome for my study. Both of these values are equally important, however, there are some study showed that people who have higher risk of heart attack and stroke would likely to have higher systolic readings. in addition, for people who are still in the elevated state of blood pressure, they have higher systolic readings not diastolic reading comparing to normal person. Due to this, having systolic would be more useful and more noticeable in our study. 
+
+This leads to the research of my study:
+
+**How effectively can we predict the high blood pressure via systolic reading using BMI, and is the quality of prediction meaningfully when I adjust for other predictors (sleep hours, diabetes, income, smoking, and cholesterol) based on my data?**
+
+# Paritioning the Data 
+Here, I will obtain a training sample with a randomly selected 70% of the data, and have the remaining 30% in a test sample, properly labeled, and using `set.seed` so that the results can be replicated later.
+
+I will call the training sample `df_training` and the test sample `df_test`.
+
+- The `slice_sample` function will sample the specified proportion of the data.
+- The `anti_join` function returns all rows in the first data frame (here specified as `df_analytic`) that are not in the second data frame (here specified as `df_training`) as assessed by the row-specific identification code (here `SEQN`)).
+
+```{r}
+set.seed(42)
+df_analytic <- df 
+df_training <- df_analytic |> slice_sample(prop = .70)
+df_test <- anti_join(df_analytic, df_training, by = "SEQN")
+dim(df_analytic)
+dim(df_training)
+dim(df_test)
+```
+Since 4785 + 2052 = 6837, we should be fine. 
+# Transforming the Outcome
+
+## Visualizing the Outcome Distribution
+In order to address the distribution of my outcomes (`systolic`)
+```{r}
+p1 <-  ggplot(df_training, aes(sample = systolic)) +
+  geom_qq() + # plot the points
+  geom_qq_line(col = "blue") + # plot the Y = X line
+  theme(aspect.ratio = 1) + # make the plot square
+  labs(title = "Normal Q-Q plot: Untransformed Systolic")
+p2 <- ggplot(df_training, aes(x=systolic)) +
+      geom_histogram(aes(y=stat(density)), bins = 20, fill ="royalblue", col ="white") +
+      stat_function(fun = dnorm, args = list(mean = mean(df_training$systolic), sd = sd(df_training$systolic)), col ="red", lwd = 1.5) +
+      labs(title="Density Function: Untransformed Systolic")
+p3 <- ggplot(df_training, aes(x = systolic, y = "")) +
+      geom_boxplot(fill = "royalblue",
+      outlier.color = "royalblue") +
+      labs(title = "Boxplot: Untransformed Systolic", y = "")
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+```
+We can see that the distribution of our outcome is clearly right-skewed. Therefore, it is better to do some transformation for the outcome. In order to do this, I would like to use `boxCox`
+
+## `boxCox` function to assess need for transformation of our outcome
+In order to use the boxCox function, I need to ensure that my outcome, `systolic`, including strictly positive values. We can see that from below, the minimum value for our outcome is 78.7, so we are good to go to next step.
+
+```{r}
+mosaic::favstats(~ systolic, data = df_training) |> kable()
+```
+
+
+```{r}
+mod_0 <- lm(systolic ~ BMI + SleepHours + smoking + diabetes + eco_status + highchol, data = df_training)
+boxCox(mod_0)
+```
+
+```{r}
+powerTransform(mod_0)
+```
+
+We can see that from the boxCox function and the estimated transformation parameter, it suggested a value of nearly -1, which looks the inverse of the `systolic`. Therefore, I would like to re-investigate the distribution if I choose to do the transformation for my outcome. 
+```{r}
+p1 <-  ggplot(df_training, aes(sample = 1/systolic)) +
+  geom_qq() + # plot the points
+  geom_qq_line(col = "blue") + # plot the Y = X line
+  theme(aspect.ratio = 1) + # make the plot square
+  labs(title = "Normal Q-Q plot: Inverse Systolic")
+p2 <- ggplot(df_training, aes(x=1/systolic)) +
+      geom_histogram(aes(y=stat(density)), bins = 20, fill ="royalblue", col ="white") +
+      stat_function(fun = dnorm, args = list(mean = mean(1/df_training$systolic), sd = sd(1/df_training$systolic)), col ="red", lwd = 1.5) +
+      labs(title="Density Function: Inverse Systolic")
+p3 <- ggplot(df_training, aes(x = 1/systolic, y = "")) +
+      geom_boxplot(fill = "royalblue",
+      outlier.color = "royalblue") +
+      labs(title = "Boxplot: Inverse Systolic", y = "")
+p1 + (p2 / p3 + plot_layout(heights = c(4,1)))
+```
+We could see that from those graphs, after the transformation, the outcome looks to be normally distributed. Therefore, in my study, I would like to do the transformation for the outcome. 
+
+##  Numerical Summary of the Outcome
+This is the numerical summary of the outcome before the transformation
+```{r}
+mosaic::favstats(~ systolic, data = df_training) |> kable()
+```
+
+And this is the numerical summary of the outcome after the transformation
+
+```{r}
+mosaic::favstats(~ 1/systolic, data = df_training) |> kable()
+```
+## Numerical Summaries of the Predictors
+I would like to see some numerical summaries for my predictor variable in the training data
+
+```{r}
+df_training |> select(-SEQN, -systolic, -diastolic) |> 
+  mosaic::inspect()
+```
+
+## Scatterplot Matrix
+Then, here I would like to build scatterplot matrices to investigate the relationship between our outcome and the predictors. The first matrix should include all the quantitative variables, while the second one includes categorical variables.
+
+This plot is the one between our outcome and its quantitative predictors. We can see that the correlation between our outcome ( `1/systolic`) and the predictors are relatively low, as it is only -0.048 and 0.080. However, comparing to the values that I got during my presentation, this already improved. 
+In addition to that, the distribution of my key predictor is also right-skewed. 
+```{r message=FALSE}
+df4_training <- mutate(df_training, systolic = 1/systolic)
+temp <-  df4_training |> 
+  select(systolic,  BMI, SleepHours) 
+
+ggpairs(temp, title = "Scatterplot Matrix",
+        lower = list(combo = wrap("facethist", bins = 20)))
+```
+
+From this scatterplot matrix, we can see that there are a lot of outliners for both end between our outcome and our categorical predictors. In addition, the distribution between groups in one variables also not equal to each other, i.e diabetes. However, it seems like the distribution between groups in one variables is normally distributed when comparing to the outcome 
+```{r message=FALSE}
+df4_training <- mutate(df_training, systolic = 1/systolic)
+temp <-  df4_training |> 
+  select(systolic, smoking, diabetes, eco_status, highchol) 
+
+ggpairs(temp, title = "Scatterplot Matrix",
+        lower = list(combo = wrap("facethist", bins = 20)))
+```
+Since the inverse of systolic gives the numerical value that are relatively small, we could see that for smoking variable, the difference between two groups are not noticeable. Howe
+```{r}
+mosaic::favstats(systolic ~ smoking, data = df4_training) |> kable()
+```
+
+## Collinearity Checking
+None of the numeric candidate predictors show any substantial correlation with each other. The largest Pearson correlation (in absolute value) between predictors is (-0.054) for `BMI` and `SleepHours`, and that’s not strong. If we did see signs of meaningful collinearity, we might rethink our selected set of predictors.
+
+
+# The Big Model 
+
+The "kitchen sink" linear regression model is to describe the relationship between our outcome (`1/systolic`) and the main effects of each of our predictors. 
+
+## Fitting/Summarizing the Kitchen Sink model
+Our “kitchen sink” or “big” model predicts the square root of sbp2 using the predictors (square root of sbp1), age, bmi1, diabetes and tobacco.
+
+Our `kitchen sink` or `mod_1` predicts the inverse of outcome using the predictors: `BMI`,` SleepHours`, `smoking`, `diabetes`, `eco_status`, `highchol`.
+
+```{r}
+mod_1 <- lm(1/systolic ~ BMI + SleepHours + smoking + diabetes + eco_status + highchol, data = df_training)
+summary(mod_1)
+```
+
+## Effect Sizes: Coefficient Estimates
+Specify the size and magnitude of all coefficients, providing estimated effect sizes with 90% confidence intervals.
+Since the value of my coefficients are very small, so I need it to be display in full-form in order to get some integter. 
+From the analysis below, we could see that our key predictor, `BMI`, is not really significant as the p-value is larger than 0.1. 
+```{r}
+tidy(mod_1, conf.int = TRUE, conf.level = 0.90) |> 
+  select(term, estimate, std.error, conf.low, conf.high, p.value) |> 
+  kable()
+```
+## Describing the Equation
+```{r}
+extract_eq(mod_1, use_coefs = TRUE, coef_digits = 8,
+           terms_per_line = 3, wrap = TRUE, ital_vars = TRUE)
+```
+
+- This model can be described as for every increasing in BMI, decrease in sleep hours, we anticipated the increase in the outcome (systolic), which is decrease in the inverse of systolic. 
+- If you are not smoking/not diabetes or diabetes only at borderline/no high cholesterol, there would be a decrease in the systolic, which is increase in the inverse of systolic.
+- If you are in either upper or lower classes, there would be an increase in the outcome (systolic), which is decrease in the inverse of systolic. 
+
+# The Smaller Model
+
+## Backwards Stepwise Elimination
+Instead of using `step` function for backwards stepwise elimination, I would like to use a couple selected models that I want to investigate. This is because when I use `step` function, it will eventually remove my key predictor out of the model, which is not what I wanted. 
+```{r}
+step(mod_1)
+```
+
+Therefore, besides my big model, I would like to investigate the other three models:
+
+- `Model 2`: 1/systolic ~ BMI
+- `Model 3`: 1/systolic ~ BMI, SleepHours 
+- `Model 4`: 1/systolic ~ BMI, SleepHours, diabetes. 
+
+## Fitting the “small” model
+This is my first small model, which is investigate the relationship between the outcome and the key predictor. 
+```{r}
+mod_2 <- lm(1/systolic ~ BMI, data = df_training)
+summary(mod_2)
+```
+
+This is my second small model, which is investigate the relationship between the outcome and the key predictor along with the average hours of sleep per week.
+```{r}
+mod_3 <- lm(1/systolic ~ BMI + SleepHours, data = df_training)
+summary(mod_3)
+```
+
+This is my second small model, which is investigate the relationship between the outcome and the key predictor along with the average hours of sleep per week and diabetes groups. 
+```{r}
+mod_4 <- lm(1/systolic ~ BMI + SleepHours + diabetes, data = df_training)
+summary(mod_4)
+```
+
+
+## Effect Sizes: Coefficient Estimates
+```{r}
+tidy(mod_2, conf.int = TRUE, conf.level = 0.90) |> 
+  select(term, estimate, std.error, conf.low, conf.high, p.value) |> kable()
+```
+
+```{r}
+tidy(mod_3, conf.int = TRUE, conf.level = 0.90) |> 
+  select(term, estimate, std.error, conf.low, conf.high, p.value) |> kable()
+```
+
+```{r}
+tidy(mod_4, conf.int = TRUE, conf.level = 0.90) |> 
+  select(term, estimate, std.error, conf.low, conf.high, p.value) |> kable()
+
+```
+
+
+
+## Small Model Regression Equation
+```{r}
+extract_eq(mod_2, use_coefs = TRUE, coef_digits = 8,
+           terms_per_line = 3, wrap = TRUE, ital_vars = TRUE)
+```
+
+- This model can be described as for every increasing in BMI, we anticipated the increase in the outcome (systolic), which is decrease in the inverse of systolic. 
+
+
+```{r}
+extract_eq(mod_3, use_coefs = TRUE, coef_digits = 8,
+           terms_per_line = 3, wrap = TRUE, ital_vars = TRUE)
+```
+- This model can be described as for every increasing in BMI, decrease in sleep hours, we anticipated the increase in the outcome (systolic), which is decrease in the inverse of systolic. 
+
+
+```{r}
+extract_eq(mod_4, use_coefs = TRUE, coef_digits = 8,
+           terms_per_line = 3, wrap = TRUE, ital_vars = TRUE)
+```
+- This model can be described as for every increasing in BMI, decrease in sleep hours, we anticipated the increase in the outcome (systolic), which is decrease in the inverse of systolic. 
+- If you are not diabetes or diabetes only at borderline, there would be a decrease in the systolic, which is increase in the inverse of systolic.
+
+# In-Sample Comparison
+## Quality of Fit
+
+In order to do the in-cample comparison, I would like to compare all of my small model to the big model in our training sample using adjusted R2, the residual standard error, AIC and BIC.
+```{r}
+bind_rows(glance(mod_1), glance(mod_2), glance(mod_3), glance(mod_4)) %>%
+mutate(model_name = c("Model 1", "Model 2", "Model 3", "Model 4"))%>%
+select(model_name, r.squared, adj.r.squared, sigma, AIC, BIC, nobs) %>%
+kable()
+```
+When comparing the AIC, Model 1 is the best, which is following by Model 4, Model 3, Model 2, respectively. 
+When comparing the BIC, Model 1 is the best, which is following by Model 4, Model 3, Model 2, respectively.
+When comparing the sigma value, Model 1 is the best, which is following by Model 4, Model 3, Model 2, respectively.
+When comparing the r-squared value, Model 1 is the best, which is following by Model 4, Model 3, Model 2, respectively. 
+## Assessing Assumptions
+Here I would like to run the residula plots for every model. 
+### Residual Plots for the Big Model
+```{r}
+par(mfrow = c(2,2)); plot(mod_1); par(mfrow = c(1,1))
+```
+I see no serious problems with the assumptions of linearity, Normality and constant variance, nor do I see any highly influential points in our big model.
+### Residual Plots for the Small Model
+`Model 2`
+```{r}
+par(mfrow = c(2,2)); plot(mod_2); par(mfrow = c(1,1))
+```
+I see no serious problems with the assumptions of linearity, Normality and constant variance, nor do I see any highly influential points in our big model.
+
+`Model 3`
+```{r}
+par(mfrow = c(2,2)); plot(mod_3); par(mfrow = c(1,1))
+```
+I see no serious problems with the assumptions of linearity, Normality and constant variance, nor do I see any highly influential points in our big model.
+
+`Model 4`
+```{r}
+par(mfrow = c(2,2)); plot(mod_4); par(mfrow = c(1,1))
+```
+I see no serious problems with the assumptions of linearity, Normality and constant variance, nor do I see any highly influential points in our big model. However, it is weired that it forms two clusters in the graph. I believe this is influenced by the diabetes variables as this only happens after adding this values into the model 4 comparing to Model 1 and 2. The main reason may be because the groups in diabetes are not having equal size.
+
+### Does collinearity have a meaningful impact?
+```{r}
+car::vif(mod_1)
+car::vif(mod_4)
+```
+
+The generalized variance inflation factors are under 5 for both model, which address that there are no potential impact of collinearity.
+## Comparing the Models
+Based on the training sample, my conclusions so far is to support the biggest  model or Model 1. It won every values to be the best model for the fit quality measures, and each model shows no serious problems with regression assumptions.
+# Model Validation
+Since I transformed my outcome earlier, then I need to back-transformed for model validation
+## Calculating Prediction Errors
+
+### Big Model: Back-Transformation and Calculating Fits/Residuals
+We’ll use the augment function from the broom package to help us here, and create fit_systolic to hold the fitted values on the original systolic scale after back-transformation (by doing the inverse of systolic) and then res_systolic to hold the residuals (prediction errors) we observe using the big model on the chosen nhannes data.
+
+
+```{r}
+test_m1 <- augment(mod_1, newdata = df_test) %>% mutate(name = "mod_1", fit_systolic = 1 / .fitted, res_systolic = systolic - fit_systolic) %>% select(SEQN, name, systolic, fit_systolic,  res_systolic, everything())
+head(test_m1,3)
+```
+
+### Small Model: Back-Transformation and Calculating Fits/Residuals
+We’ll do the same thing, but using the small model in the chosen nhannes data.
+
+`Model 2`
+```{r}
+test_m2 <- augment(mod_2, newdata = df_test) %>% mutate(name = "mod_2", fit_systolic = 1 / .fitted, res_systolic = systolic - fit_systolic) %>% select(SEQN, name, systolic, fit_systolic,  res_systolic, everything())
+head(test_m2,3)
+
+```
+
+`Model 3`
+```{r}
+test_m3 <- augment(mod_3, newdata = df_test) %>% mutate(name = "mod_3", fit_systolic = 1 / .fitted, res_systolic = systolic - fit_systolic) %>% select(SEQN, name, systolic, fit_systolic,  res_systolic, everything())
+head(test_m3,3)
+```
+
+`Model 4`
+```{r}
+test_m4 <- augment(mod_4, newdata = df_test) %>% mutate(name = "mod_4", fit_systolic = 1 / .fitted, res_systolic = systolic - fit_systolic) %>% select(SEQN, name, systolic, fit_systolic,  res_systolic, everything())
+head(test_m4,3)
+```
+
+### Combining the Results
+the `test_comp` tibble including all the predictions and residuals from 4 models. It helps to visualize the predictions, summarizing the errors, identify the largest errors, and validated the r-squared values.
+```{r}
+test_comp <- bind_rows(test_m1, test_m2, test_m3, test_m4) |> arrange(SEQN, name)
+
+test_comp |> head()
+```
+## Visualizing the Predictions
+```{r}
+ggplot(test_comp, aes(x = fit_systolic, y = systolic)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, lty = "dashed") + 
+  geom_smooth(method = "loess", col = "blue", se = FALSE, formula = y ~ x) +
+  facet_wrap( ~ name, labeller = "label_both") +
+  labs(x = "Predicted systolic",
+       y = "Observed systolic",
+       title = "Observed vs. Predicted systolic",
+       subtitle = "Comparing Big to 3 Small Modesl in Test Sample",
+       caption = "Dashed line is where Observed = Predicted")
+```
+We can see that in four graphs, the Model 1 seems to be the most reasonable comparing to other 3. Other 3 models, all the points seem to be cluster at one place, except for Model 4 that it clusters into 2 different clusters. However, there are not much difference in the dashed line, which is predictable since the coefficients are really low. 
+
+## Summarizing the Errors
+
+Calculate the mean absolute prediction error (MAPE), the root mean squared prediction error (RMSPE) and the maximum absolute error across the predictions made by each model.
+
+```{r}
+test_comp |>
+  group_by(name) |>
+  dplyr::summarise(n = n(),
+            MAPE = mean(abs(res_systolic)), 
+            RMSPE = sqrt(mean(res_systolic**2)),
+            max_error = max(abs(res_systolic)))
+```
+Model 1 has the lowest MAPE, RMSPE, and max_error. Model 2 has the second-lowest for all these 3 values. Due to this, it also suggests that Model 1 is the best model so far. 
+
+### Identify the largest errors
+
+```{r}
+temp1 <- test_m1 %>%
+filter(abs(res_systolic) == max(abs(res_systolic)))
+temp2 <- test_m2 %>%
+filter(abs(res_systolic) == max(abs(res_systolic)))
+temp3 <- test_m3 %>%
+filter(abs(res_systolic) == max(abs(res_systolic)))
+temp4 <- test_m4 %>%
+filter(abs(res_systolic) == max(abs(res_systolic)))
+bind_rows(temp1, temp2, temp3, temp4) %>%
+select(SEQN, name, systolic, fit_systolic, res_systolic)
+```
+This helps to identify the outliner for all 4 models. We can try to investigate the errors after removing this point.
+```{r}
+test_comp %>% filter(SEQN != "112898") %>%
+group_by(name) |>
+  dplyr::summarise(n = n(),
+            MAPE = mean(abs(res_systolic)), 
+            RMSPE = sqrt(mean(res_systolic**2)),
+            max_error = max(abs(res_systolic)))
+
+```
+After removing that outliner, Model 1 only has the lowest value for MAPE and RMSPE, with the biggest maximum absolute error. However, it still outweights other models. 
+
+### Validated R-square values
+```{r}
+cor(test_m1$systolic, test_m1$fit_systolic)**2
+```
+```{r}
+cor(test_m2$systolic, test_m2$fit_systolic)**2
+```
+```{r}
+cor(test_m3$systolic, test_m3$fit_systolic)**2
+```
+
+```{r}
+cor(test_m4$systolic, test_m4$fit_systolic)**2
+```
+
+From this analysis, we can see that Model 1 has the biggest correlations. 
+
+## Comparing the Models
+After the analysis, I would like to use Model 1, or the big model because it performs the best for fit quality as well as has the smallest errors comparing to other models.
+
+# Discussion
+## Chosen Model
+
+After the analysis, I would like to use Model 1, or the big model because it performs the best for fit quality (lowest AIC, BIC,sigma but highest R-squared ) as well as has the smallest errors (mean absolute prediction error, , maximum absolute error ) comparing to other models. 
+
+## Answering My Question
+This helps to answer my questions that having higher BMI, less sleep could lead to higher systolic, which indicate the high blood pressure. In addition, not having diabetes or diabetes at the borderline could also have lower systolic reading. Not having high cholesterol or smokig also indicates lower systolic reading. People come from the upper and lower, there would be an increase in the systolic. 
+Even though the coefficients are very small, but the result seems to be reasonable as those risk factors only increase the systolic reading when it increase in the harmful way. 
+For the economic status, it can be explained that people from the lower class, they have less chance to get access to the healthcare and don't take care much about their food. For the upper class, they have access to more food, and may overconsume it. 
+
+## Next Steps
+
+In this analysis, I only consider 4 models without doing in the step function. That's being said, there could be other models that are better fit comparing to my big model. Further works must be done in order to investigate different combinations of predictors in order to predict the outcome. 
+
+In addition to that, I only use systolic reading for this analysis without consider diastolic reading. Further work should be worked on diastolic reading to see what factors affect this value. This is because both of these values are essential in order to indicate a person who is at risk for having abnormal blood pressure or not. Getting to know one value could lead to bias. 
+## Reflection
+
+I already changed my approach when doing this study after the presentation after listening advice from Professor. However, it seems like my coefficients are still very low. I believe if I can redo it, I would like to investigate more about the datasets and make a better choice for my predictors. 
+
+## Session Information
+```{r}
+sessionInfo()
+```
+
+
